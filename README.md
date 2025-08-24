@@ -25,12 +25,17 @@ python3 -m venv venv
 source venv/bin/activate
 ```
 
-3. Dependencies are already installed in the venv. You can verify with:
+3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+4. Verify installation:
 ```bash
 pip list
 ```
 
-4. Run the server:
+5. Run the server:
 ```bash
 python app.py
 ```
