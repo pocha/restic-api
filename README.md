@@ -25,9 +25,9 @@ python3 -m venv venv
 source venv/bin/activate
 ```
 
-3. Install dependencies:
+3. Dependencies are already installed in the venv. You can verify with:
 ```bash
-pip install flask flask-cors
+pip list
 ```
 
 4. Run the server:
