@@ -262,8 +262,11 @@ def list_backup_contents(location_id, backup_id):
         
         repo_path = config['locations'][location_id]
         directory_path = request.args.get('directory_path', '/')
+        recursive = request.args.get('recursive', 'false').lower() == 'true'
         
         cmd = ['restic', 'ls', backup_id, '--repo', repo_path, '--json']
+        if recursive:
+            cmd.append('--recursive')
         if directory_path != '/':
             cmd.append(directory_path)
         

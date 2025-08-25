@@ -31,9 +31,9 @@ All endpoints (except config and POST /locations) require `X-Restic-Password` he
 | **Backups** |
 | GET | `/locations/{id}/backups` | List snapshots | Query: `?path=/specific/path` | `[{"snapshot_id": "a1b2c3d4", "date": "2024-01-15", "size": "1.2GB"}]` |
 | POST | `/locations/{id}/backups` | Create backup (SSE stream) | `{"path": "/path/to/backup"}` | SSE: `data: {"output": "progress..."}, {"completed": true, "snapshot_id": "..."}` |
-| GET | `/locations/{id}/backups/{backup_id}` | Browse backup contents | Query: `?directory_path=/subdir` | `[{"name": "file.txt", "type": "file", "size": 1024, "path": "/file.txt"}]` |
+| GET | `/locations/{id}/backups/{backup_id}` | Browse backup contents | Query: `?directory_path=/subdir&recursive=true` | `[{"name": "file.txt", "type": "file", "size": 1024, "path": "/file.txt"}]` |
 | **Restore** |
-| POST | `/locations/{id}/backups/{backup_id}/restore` | Restore data (SSE stream) | `{"target": "/restore/path", "include": [...], "exclude": [...]}` | SSE: `data: {"output": "restoring..."}, {"completed": true, "success": true}` |
+| POST | `/locations/{id}/backups/{backup_id}/restore` | Restore data (SSE stream) | `{"target": "/restore/path", "include": [...], "exclude": [...], "dry_run": false}` | SSE: `data: {"output": "restoring..."}, {"completed": true, "success": true}` |
 
 ## Features
 
