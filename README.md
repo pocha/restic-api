@@ -17,7 +17,7 @@ Server runs on `http://localhost:5000`
 
 ## Authentication
 
-All endpoints (except config) require `X-Restic-Password` header with repository password.
+All endpoints (except config and POST /locations) require `X-Restic-Password` header with repository password.
 
 ## API Reference
 
