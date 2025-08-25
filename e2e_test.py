@@ -293,7 +293,24 @@ def main():
         os.rename(backup_dir, backup_dir_renamed)
         print(f"   Renamed {backup_dir} to {backup_dir_renamed}")
         
-        # Step 9: Restore backup
+        # Step 9: List backup contents with recursive option
+        print("\n📂 Listing backup contents (recursive)...")
+        headers = {'X-Restic-Password': 'test_password_123'}
+        response = requests.get(f'{BASE_URL}/locations/{location_id}/backups/{snapshot_id}?recursive=true', headers=headers)
+        if response.status_code != 200:
+            print(f"❌ Failed to list backup contents: {response.status_code}")
+            return False
+        
+        backup_contents = response.json()
+        print(f"   📁 Found {len(backup_contents)} items in backup:")
+        for item in backup_contents[:10]:  # Show first 10 items
+            item_type = "📁" if item.get('type') == 'dir' else "📄"
+            size_info = f" ({item.get('size', 0)} bytes)" if item.get('type') == 'file' else ""
+            print(f"   {item_type} {item.get('path', item.get('name', 'unknown'))}{size_info}")
+        if len(backup_contents) > 10:
+            print(f"   ... and {len(backup_contents) - 10} more items")
+        
+        # Step 10: Restore backup
         print("\n🔄 Restoring backup...")
         restore_data = {
             'target': restore_dir
@@ -310,7 +327,7 @@ def main():
             print("❌ Restore failed")
             return False
         
-        # Step 10: Compare original and restored directories
+        # Step 11: Compare original and restored directories
         print("\n🔍 Comparing original and restored data...")
         
         # The restored directory will have the full path structure
@@ -327,7 +344,7 @@ def main():
         
         success = compare_directories(backup_dir_renamed, restored_content_dir)
         
-        # Step 11: Cleanup
+        # Step 12: Cleanup
         print("\n🧹 Cleaning up...")
         shutil.rmtree(repo_dir, ignore_errors=True)
         shutil.rmtree(backup_dir_renamed, ignore_errors=True)
