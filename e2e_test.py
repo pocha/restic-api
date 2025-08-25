@@ -198,23 +198,15 @@ def main():
         print(f"   Backup source: {backup_dir}")
         print(f"   Restore target: {restore_dir}")
         
-        # Step 3: Create and set configuration
+        # Step 3: Update restic version in configuration
         print("\n⚙️  Setting up configuration...")
-        config = {
-            'restic_version': '0.16.0',
-            'locations': {
-                'test_repo': {
-                    'path': repo_dir,
-                    'password': 'test_password_123'
-                }
-            },
-            'paths': [backup_dir]
-        }
         
-        result = api_call('POST', '/config', config)
-        if not result or 'Configuration updated successfully' not in str(result):
-            print("❌ Failed to set configuration")
+        # Use the new /config/update_restic API to set restic version
+        result = api_call('POST', '/config/update_restic', {})
+        if not result or 'restic_version' not in str(result):
+            print("❌ Failed to update restic configuration")
             return False
+        print(f"✅ Restic version updated: {result.get('restic_version', 'Unknown')}")
         
         # Step 4: Initialize repository
         print("\n🏗️  Initializing repository...")
