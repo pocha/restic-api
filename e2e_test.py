@@ -263,6 +263,30 @@ def main():
             print("❌ Backup failed")
             return False
         
+        
+        # Step 6.1: Verify config was updated with backup path
+        print("\n🔍 Verifying config was updated with backup path...")
+        response = requests.get(f'{BASE_URL}/config')
+        if response.status_code != 200:
+            print(f"❌ Failed to get config: {response.status_code}")
+            return False
+        
+        config = response.json()
+        if location_id not in config.get('locations', {}):
+            print(f"❌ Location {location_id} not found in config")
+            return False
+        
+        location_config = config['locations'][location_id]
+        if 'paths' not in location_config:
+            print(f"❌ Paths field not found in location config")
+            return False
+        
+        if backup_dir not in location_config['paths']:
+            print(f"❌ Backup path {backup_dir} not found in config paths: {location_config['paths']}")
+            return False
+        
+        print(f"✅ Config updated successfully - backup path {backup_dir} found in paths")
+        
         # Step 7: List snapshots to verify backup
         print("\n📋 Listing snapshots...")
         headers = {'X-Restic-Password': 'test_password_123'}
