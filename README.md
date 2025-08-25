@@ -25,7 +25,7 @@ All endpoints (except config and POST /locations) require `X-Restic-Password` he
 |--------|----------|-------------|-------------------|----------|
 | **Configuration** |
 | GET | `/config` | Get current configuration | - | `{"restic_version": "0.16.0", "locations": {...}, "paths": [...]}` |
-| POST | `/config` | Update configuration | `{"restic_version": "0.16.0", "locations": {...}, "paths": [...]}` | `{"message": "Configuration updated successfully"}` |
+| POST | `/config/update_restic` | Update restic binary/version | `file` (optional): restic binary file | `{"message": "Restic updated successfully", "version": "0.16.0"}` |
 | **Repository** |
 | POST | `/locations` | Initialize new repository | `{"location": "/path/to/repo", "password": "pass"}` | `{"message": "Repository initialized successfully", "location_id": "repo"}` |
 | **Backups** |
