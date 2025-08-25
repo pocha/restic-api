@@ -21,19 +21,19 @@ All endpoints (except config) require `X-Restic-Password` header with repository
 
 ## API Reference
 
-| Method | Endpoint | Description | Request Body |
-|--------|----------|-------------|--------------|
+| Method | Endpoint | Description | (optional) Params | Response |
+|--------|----------|-------------|-------------------|----------|
 | **Configuration** |
-| GET | `/config` | Get current configuration | - |
-| POST | `/config` | Update configuration | `{"restic_version": "0.16.0", "locations": {...}, "paths": [...]}` |
+| GET | `/config` | Get current configuration | - | `{"restic_version": "0.16.0", "locations": {...}, "paths": [...]}` |
+| POST | `/config` | Update configuration | `{"restic_version": "0.16.0", "locations": {...}, "paths": [...]}` | `{"message": "Configuration updated successfully"}` |
 | **Repository** |
-| POST | `/locations` | Initialize new repository | `{"location": "/path/to/repo", "password": "pass"}` |
+| POST | `/locations` | Initialize new repository | `{"location": "/path/to/repo", "password": "pass"}` | `{"message": "Repository initialized successfully", "location_id": "repo"}` |
 | **Backups** |
-| GET | `/locations/{id}/backups` | List snapshots | - |
-| POST | `/locations/{id}/backups` | Create backup (SSE stream) | `{"path": "/path/to/backup"}` |
-| GET | `/locations/{id}/backups/{backup_id}` | Browse backup contents | - |
+| GET | `/locations/{id}/backups` | List snapshots | Query: `?path=/specific/path` | `[{"snapshot_id": "a1b2c3d4", "date": "2024-01-15", "size": "1.2GB"}]` |
+| POST | `/locations/{id}/backups` | Create backup (SSE stream) | `{"path": "/path/to/backup"}` | SSE: `data: {"output": "progress..."}, {"completed": true, "snapshot_id": "..."}` |
+| GET | `/locations/{id}/backups/{backup_id}` | Browse backup contents | Query: `?directory_path=/subdir` | `[{"name": "file.txt", "type": "file", "size": 1024, "path": "/file.txt"}]` |
 | **Restore** |
-| POST | `/locations/{id}/backups/{backup_id}/restore` | Restore data (SSE stream) | `{"target": "/restore/path", "include": [...], "exclude": [...]}` |
+| POST | `/locations/{id}/backups/{backup_id}/restore` | Restore data (SSE stream) | `{"target": "/restore/path", "include": [...], "exclude": [...]}` | SSE: `data: {"output": "restoring..."}, {"completed": true, "success": true}` |
 
 ## Features
 
