@@ -45,7 +45,21 @@ All endpoints (except config and POST /locations) require `X-Restic-Password` he
 
 ## Testing
 
-Run the end-to-end test:
-```bash
+After installation, you can run the end-to-end test to verify everything is working:
+
+**Option 1: Using the batch file**
+```cmd
+run_e2e_test.bat
+```
+
+**Option 2: Direct command**
+```cmd
 python e2e_test.py
 ```
+
+The test will:
+- Start the server automatically
+- Create a test repository and backup
+- Perform restore operations
+- Validate the installation
+

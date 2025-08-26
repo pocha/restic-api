@@ -45,3 +45,4 @@ config.json
 # Test files
 test_backup/
 test_restore/
+test_data/
