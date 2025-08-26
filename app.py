@@ -137,7 +137,7 @@ def update_restic():
                     
                     # Import and use Linux installer
                     import importlib.util
-                    spec = importlib.util.spec_from_file_location("linux_installer", "restic-installer-scripts/linux.py")
+                    spec = importlib.util.spec_from_file_location("linux_installer", "restic_installer_scripts/linux.py")
                     linux_installer = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(linux_installer)
                     
@@ -146,7 +146,7 @@ def update_restic():
                 elif current_platform == 'windows':
                     # Import and use Windows installer
                     import importlib.util
-                    spec = importlib.util.spec_from_file_location("windows_installer", "restic-installer-scripts/windows.py")
+                    spec = importlib.util.spec_from_file_location("windows_installer", "restic_installer_scripts/windows.py")
                     windows_installer = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(windows_installer)
                     

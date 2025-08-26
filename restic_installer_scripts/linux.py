@@ -102,6 +102,82 @@ if __name__ == "__main__":
         sys.exit(1)
     
     binary_path = sys.argv[1]
+
+def restic_removal_linux():
+    """Remove restic binary on Linux systems"""
+    import shutil
+    import os
+    
+    restic_backup_path = None
+    if os.path.exists('/usr/bin/restic'):
+        restic_backup_path = '/tmp/restic_backup'
+        shutil.copy2('/usr/bin/restic', restic_backup_path)
+        print(f"   ✅ Backed up to {restic_backup_path}")
+    
+    # Remove restic binary
+    print("🗑️  Removing restic binary...")
+    if os.path.exists('/usr/bin/restic'):
+        os.system('sudo rm -f /usr/bin/restic')
+    if os.path.exists('/usr/local/bin/restic'):
+        os.system('sudo rm -f /usr/local/bin/restic')
+    
+    return restic_backup_path
+
+def download_restic_linux():
+    """Download and prepare restic binary for Linux"""
+    import tempfile
+    import requests
+    import bz2
+    import shutil
+    import stat
+    import os
+    
+    print("⬇️  Downloading latest restic binary from GitHub...")
+    releases_url = "https://api.github.com/repos/restic/restic/releases/latest"
+    response = requests.get(releases_url)
+    if response.status_code != 200:
+        print(f"❌ Failed to fetch release info: {response.status_code}")
+        return None
+    
+    release_data = response.json()
+    download_url = None
+    
+    # Find Linux amd64 asset
+    for asset in release_data.get('assets', []):
+        if 'linux_amd64' in asset['name'] and asset['name'].endswith('.bz2'):
+            download_url = asset['browser_download_url']
+            filename = asset['name']
+            break
+    
+    if not download_url:
+        print("❌ Could not find Linux amd64 binary in latest release")
+        return None
+    
+    print(f"   📥 Downloading: {filename}")
+    
+    # Download and extract the binary
+    temp_dir = tempfile.mkdtemp()
+    archive_path = os.path.join(temp_dir, filename)
+    binary_response = requests.get(download_url)
+    if binary_response.status_code != 200:
+        print(f"❌ Failed to download binary: {binary_response.status_code}")
+        return None
+    
+    with open(archive_path, 'wb') as f:
+        f.write(binary_response.content)
+    
+    # Extract bz2 file
+    print("📦 Extracting binary...")
+    extracted_path = os.path.join(temp_dir, 'restic')
+    with bz2.BZ2File(archive_path, 'rb') as f_in:
+        with open(extracted_path, 'wb') as f_out:
+            shutil.copyfileobj(f_in, f_out)
+    
+    # Make it executable
+    os.chmod(extracted_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+    
+    return extracted_path
+
     root_password = sys.argv[2]
     
     result = install_restic_linux(binary_path, root_password)
