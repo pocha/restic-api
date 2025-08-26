@@ -35,14 +35,14 @@ if %errorlevel% neq 0 (
     
     :: Install Python silently with pip and add to PATH
     echo Installing Python...
-    start /wait python-installer.exe /quiet InstallAllUsers=0 PrependPath=1 Include_pip=1
+    powershell -Command "Start-Process .\python-installer.exe -ArgumentList '/quiet InstallAllUsers=0 PrependPath=1 Include_pip=1 Include_tests=0' -NoNewWindow -Wait
     
-    if %errorlevel% neq 0 (
-        echo Python installation failed.
-        echo Please install Python manually from https://www.python.org/downloads/
-        pause
-        exit /b 1
-    )
+    ::if %errorlevel% neq 0 (
+    ::    echo Python installation failed.
+    ::    echo Please install Python manually from https://www.python.org/downloads/
+    ::    pause
+    ::    exit /b 1
+    ::)
     
     :: Clean up installer
     del python-installer.exe
