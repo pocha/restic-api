@@ -18,8 +18,19 @@ def load_config():
     """Load configuration from config.json"""
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, 'r') as f:
-            return json.load(f)
-    return {'restic_version': '', 'locations': {}, 'paths': []}
+            config = json.load(f)
+            
+        # Migrate old config format to new format if needed
+        if 'locations' in config:
+            for location_id, location_data in config['locations'].items():
+                # If location_data is a string (old format), convert to new format
+                if isinstance(location_data, str):
+                    config['locations'][location_id] = {
+                        'repo_path': location_data,
+                        'paths': []
+                    }
+        return config
+    return {'restic_version': 'NA', 'locations': {}}
 
 def save_config(config):
     """Save configuration to config.json"""
@@ -94,19 +105,43 @@ def get_config():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/config', methods=['POST'])
-def update_config():
-    """Update configuration"""
+@app.route('/config/update_restic', methods=['POST'])
+def update_restic():
+    """Update restic binary and version in configuration"""
     try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No JSON data provided'}), 400
+        # Check if a file was uploaded
+        if 'file' in request.files:
+            file = request.files['file']
+            if file.filename == '':
+                return jsonify({'error': 'No file selected'}), 400
+            
+            # Save the uploaded file as restic binary
+            restic_path = '/usr/local/bin/restic'
+            file.save(restic_path)
+            
+            # Make it executable
+            import stat
+            os.chmod(restic_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
         
+        # Get restic version
+        try:
+            result = subprocess.run(['restic', 'version'], capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                version_output = result.stdout.strip()
+            else:
+                version_output = 'NA'
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+            version_output = 'NA'
+        
+        # Update config with version
         config = load_config()
-        config.update(data)
+        config['restic_version'] = version_output
         save_config(config)
         
-        return jsonify({'message': 'Configuration updated successfully'})
+        return jsonify({
+            'message': 'Restic version updated successfully',
+            'restic_version': version_output
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -137,7 +172,10 @@ def init_location():
         
         # Generate a location ID (use the last part of the path)
         location_id = os.path.basename(location.rstrip('/'))
-        config['locations'][location_id] = location
+        config['locations'][location_id] = {
+            'repo_path': location,
+            'paths': []
+        }
         save_config(config)
         
         return jsonify({
@@ -161,7 +199,7 @@ def list_backups(location_id):
         if location_id not in config.get('locations', {}):
             return jsonify({'error': 'Location not found'}), 404
         
-        repo_path = config['locations'][location_id]
+        repo_path = config['locations'][location_id]['repo_path']
         path_filter = request.args.get('path', '')
         
         # Build restic snapshots command
@@ -233,8 +271,13 @@ def create_backup(location_id):
         if not data or 'path' not in data:
             return jsonify({'error': 'path parameter is required'}), 400
         
-        repo_path = config['locations'][location_id]
+        repo_path = config['locations'][location_id]['repo_path']
         backup_path = data['path']
+        
+        # Add backup path to location's paths list if not already present
+        if backup_path not in config['locations'][location_id]['paths']:
+            config['locations'][location_id]['paths'].append(backup_path)
+            save_config(config)
         
         cmd = ['restic', 'backup', backup_path, '--repo', repo_path, '--verbose']
         env_vars = {'RESTIC_PASSWORD': password}
@@ -260,7 +303,7 @@ def list_backup_contents(location_id, backup_id):
         if location_id not in config.get('locations', {}):
             return jsonify({'error': 'Location not found'}), 404
         
-        repo_path = config['locations'][location_id]
+        repo_path = config['locations'][location_id]['repo_path']
         directory_path = request.args.get('directory_path', '/')
         recursive = request.args.get('recursive', 'false').lower() == 'true'
         
@@ -324,7 +367,7 @@ def restore_backup(location_id, backup_id):
         if not data or 'target' not in data:
             return jsonify({'error': 'target parameter is required'}), 400
         
-        repo_path = config['locations'][location_id]
+        repo_path = config['locations'][location_id]['repo_path']
         target = data['target']
         is_dry_run = data.get('is_dry_run', 0)
         
