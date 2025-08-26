@@ -10,6 +10,8 @@ import signal
 import sys
 from pathlib import Path
 
+from restic_installer_scripts.linux import restic_removal_linux, download_restic_linux
+from restic_installer_scripts.windows import restic_removal_windows, download_restic_windows
 # Test configuration
 BASE_URL = 'http://localhost:5000'
 SERVER_PROCESS = None
@@ -165,6 +167,114 @@ def compare_directories(dir1, dir2):
     print("✅ Directories match perfectly!")
     return True
 
+
+
+def test_restic_installation():
+    """Test restic binary installation functionality"""
+    print("\n🔧 Testing Restic Installation...")
+    print("=" * 40)
+    
+    try:
+        import platform
+        import tempfile
+        import requests
+        import shutil
+        
+        # Detect the operating system
+        current_os = platform.system().lower()
+        print(f"🖥️  Detected OS: {current_os}")
+        
+        restic_backup_path = None
+        extracted_path = None
+        
+        # Step 1: Remove existing restic binary (platform-specific)
+        print("📦 Backing up and removing existing restic binary...")
+        if current_os == 'linux':
+            restic_backup_path = restic_removal_linux()
+        elif current_os == 'windows':
+            restic_backup_path = restic_removal_windows()
+        else:
+            print(f"⚠️  Unsupported OS: {current_os}")
+            return False
+        
+        # Step 2: Test that API returns 'NA' for restic version
+        print("🔍 Testing API returns 'NA' when restic is not installed...")
+        result = api_call('POST', '/config/update_restic', {})
+        if not result or result.get('restic_version') != 'NA':
+            print(f"❌ Expected 'NA' but got: {result.get('restic_version') if result else 'No result'}")
+            return False
+        print("✅ API correctly returns 'NA' when restic is not installed")
+        
+        # Step 3: Download latest binary from GitHub releases (platform-specific)
+        if current_os == 'linux':
+            extracted_path = download_restic_linux()
+        elif current_os == 'windows':
+            extracted_path = download_restic_windows()
+        
+        if not extracted_path:
+            print("❌ Failed to download and extract restic binary")
+            return False
+        
+        # Step 4: Test installation via API
+        print("🚀 Testing installation via /config/update_restic API...")
+        
+        with open(extracted_path, 'rb') as binary_file:
+            files = {'file': ('restic', binary_file, 'application/octet-stream')}
+            data = {'root_password': 'nonbios'}  # Using the user's password
+            
+            response = requests.post(f'{BASE_URL}/config/update_restic', files=files, data=data)
+            
+            if response.status_code != 200:
+                print(f"❌ Installation API call failed: {response.status_code}")
+                print(f"   Response: {response.text}")
+                return False
+            
+            result = response.json()
+            print(f"✅ Installation successful: {result.get('message', 'Unknown')}")
+        
+        # Step 5: Verify the version is correctly updated
+        print("✅ Verifying installation...")
+        result = api_call('POST', '/config/update_restic', {})
+        if not result or result.get('restic_version') == 'NA':
+            print(f"❌ Installation verification failed. Version: {result.get('restic_version') if result else 'No result'}")
+            return False
+        
+        print(f"✅ Restic successfully installed! Version: {result.get('restic_version')}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Restic installation test failed: {str(e)}")
+        return False
+    
+    finally:
+        # Clean up temporary files
+        if extracted_path and os.path.exists(extracted_path):
+            try:
+                temp_dir = os.path.dirname(extracted_path)
+                shutil.rmtree(temp_dir)
+                print("🧹 Cleaned up temporary files")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not clean up temporary files: {e}")
+        
+        # Restore original binary if we backed it up (platform-specific)
+        if restic_backup_path and os.path.exists(restic_backup_path):
+            print("🔄 Restoring original restic binary...")
+            try:
+                current_os = platform.system().lower()
+                if current_os == 'linux':
+                    os.system(f'sudo cp {restic_backup_path} /usr/bin/restic')
+                    os.system('sudo chmod 755 /usr/bin/restic')
+                    os.remove(restic_backup_path)
+                elif current_os == 'windows':
+                    # Try to restore to the most common location
+                    target_path = 'C:\\Program Files\\restic\\restic.exe'
+                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    shutil.copy2(restic_backup_path, target_path)
+                    os.remove(restic_backup_path)
+                print("✅ Original binary restored")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not restore original binary: {e}")
+
 def main():
     """Main end-to-end test function"""
     print("🧪 Starting End-to-End Restic API Test")
@@ -177,6 +287,11 @@ def main():
     try:
         # Step 1: Start server
         if not start_server():
+            return False
+        
+        # Step 1.5: Test restic installation
+        print("\n🔧 Testing restic installation...")
+        if not test_restic_installation():
             return False
         
         # Step 2: Create temporary directories in /tmp

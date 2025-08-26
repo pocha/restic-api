@@ -107,30 +107,81 @@ def get_config():
 
 @app.route('/config/update_restic', methods=['POST'])
 def update_restic():
-    """Update restic binary and version in configuration"""
+    """Update restic binary and version in configuration with cross-platform support"""
     try:
+        import platform
+        import tempfile
+        
+        # Get root/admin password if provided
+        root_password = request.form.get('root_password', '')
+        
         # Check if a file was uploaded
         if 'file' in request.files:
             file = request.files['file']
             if file.filename == '':
                 return jsonify({'error': 'No file selected'}), 400
             
-            # Save the uploaded file as restic binary
-            restic_path = '/usr/local/bin/restic'
-            file.save(restic_path)
+            # Detect platform
+            current_platform = platform.system().lower()
             
-            # Make it executable
-            import stat
-            os.chmod(restic_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+            # Save uploaded file to temporary location
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.exe' if current_platform == 'windows' else '') as temp_file:
+                file.save(temp_file.name)
+                temp_binary_path = temp_file.name
+            
+            try:
+                # Install using platform-specific installer
+                if current_platform == 'linux':
+                    if not root_password:
+                        return jsonify({'error': 'Root password required for Linux installation'}), 400
+                    
+                    # Import and use Linux installer
+                    import importlib.util
+                    spec = importlib.util.spec_from_file_location("linux_installer", "restic_installer_scripts/linux.py")
+                    linux_installer = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(linux_installer)
+                    
+                    result = linux_installer.install_restic_linux(temp_binary_path, root_password)
+                    
+                elif current_platform == 'windows':
+                    # Import and use Windows installer
+                    import importlib.util
+                    spec = importlib.util.spec_from_file_location("windows_installer", "restic_installer_scripts/windows.py")
+                    windows_installer = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(windows_installer)
+                    
+                    result = windows_installer.install_restic_windows(temp_binary_path, root_password if root_password else None)
+                    
+                else:
+                    return jsonify({'error': f'Unsupported platform: {current_platform}'}), 400
+                
+                # Check installation result
+                if not result['success']:
+                    return jsonify({'error': result['message']}), 500
+                    
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_binary_path)
+                except:
+                    pass
         
-        # Get restic version
+        # Get restic version (works for both platforms)
         try:
-            result = subprocess.run(['restic', 'version'], capture_output=True, text=True, timeout=10)
-            if result.returncode == 0:
-                version_output = result.stdout.strip()
-            else:
-                version_output = 'NA'
-        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+            # Try different command variations
+            commands = ['restic', 'restic.exe'] if platform.system().lower() == 'windows' else ['restic']
+            version_output = 'NA'
+            
+            for cmd in commands:
+                try:
+                    result = subprocess.run([cmd, 'version'], capture_output=True, text=True, timeout=10)
+                    if result.returncode == 0:
+                        version_output = result.stdout.strip()
+                        break
+                except FileNotFoundError:
+                    continue
+                    
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
             version_output = 'NA'
         
         # Update config with version
@@ -140,7 +191,8 @@ def update_restic():
         
         return jsonify({
             'message': 'Restic version updated successfully',
-            'restic_version': version_output
+            'restic_version': version_output,
+            'platform': platform.system().lower()
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
