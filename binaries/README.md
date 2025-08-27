@@ -6,8 +6,8 @@
 ## Installation Instructions
 1. Download `restic-api-windows-installer.zip`
 2. Extract the zip file to any directory
-3. Double-click `install.bat` to start installation
-4. Follow the on-screen prompts
+3. Check python is installed by running `install_python.bat`. It has to be run in Powershell as Administrator.
+4. Run `run_installer_py.bat` to install Restic API server. 
 
 ## What the Installer Does
 - Checks for Python installation (downloads and installs if needed)
