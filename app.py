@@ -94,11 +94,7 @@ def parse_snapshots_output(output):
                 snapshot_id = parts[0]
                 date_str = ' '.join(parts[1:3])
                 # Try to find size info (may not always be present)
-                size = 'N/A'
-                for part in parts[3:]:
-                    if 'B' in part or 'KB' in part or 'MB' in part or 'GB' in part:
-                        size = part
-                        break
+                size = ' '.join(parts[4:6])
                 
                 snapshots.append({
                     'snapshot_id': snapshot_id,

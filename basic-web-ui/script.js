@@ -19,6 +19,36 @@ function formatBytes(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
 }
 
+function convertResticSizeToBytes(sizeStr) {
+  if (!sizeStr || sizeStr === "N/A" || sizeStr === "Unknown") {
+    return 0
+  }
+
+  // Extract number and unit from strings like "123.45MiB", "1.2GiB", etc.
+  const match = sizeStr.match(/^([\d.]+)\s*([KMGT]?i?B)$/)
+  if (!match) {
+    return 0
+  }
+
+  const value = parseFloat(match[1])
+  const unit = match[2]
+
+  // Convert to bytes based on unit (using binary prefixes as restic uses)
+  const multipliers = {
+    B: 1,
+    KiB: 1024,
+    MiB: 1024 * 1024,
+    GiB: 1024 * 1024 * 1024,
+    TiB: 1024 * 1024 * 1024 * 1024,
+    // Also handle decimal prefixes just in case
+    KB: 1000,
+    MB: 1000 * 1000,
+    GB: 1000 * 1000 * 1000,
+    TB: 1000 * 1000 * 1000 * 1000,
+  }
+
+  return Math.round(value * (multipliers[unit] || 1))
+}
 // API calls
 async function fetchConfig() {
   try {
@@ -313,7 +343,7 @@ document.addEventListener("DOMContentLoaded", async function () {
 
       backups.forEach((backup, index) => {
         const backupDate = new Date(backup.date).toLocaleString()
-        const backupSize = backup.size ? formatBytes(backup.size) : "Unknown"
+        const backupSize = backup.size
 
         html += `
                     <div class="border border-gray-200 rounded-lg p-4" data-backup-index="${index}">
