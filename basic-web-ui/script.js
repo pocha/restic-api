@@ -207,16 +207,14 @@ async function loadScheduledBackups(locationId) {
 }
 
 function displayScheduledBackups(schedules, locationId) {
+  if (schedules.length === 0) {
+    return
+  }
   const scheduledBackupsList = document.getElementById("scheduledBackupsList")
   const scheduledBackupsContent = document.getElementById("scheduledBackupsContent")
 
-  if (schedules.length === 0) {
-    scheduledBackupsList.classList.add("hidden")
-    return
-  }
-
   scheduledBackupsList.classList.remove("hidden")
-  scheduledBackupsContent.innerHTML = schedules
+  scheduledBackupsContent.innerHTML += schedules
     .map(
       (schedule) => `
     <div class="bg-gray-50 p-4 rounded-lg border">
