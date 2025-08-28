@@ -97,9 +97,13 @@ async function startBackup(locationId, path, password) {
   }
 }
 
-async function listBackups(locationId, path) {
+async function listBackups(locationId, path, password) {
   try {
-    const response = await fetch(`${API_BASE}/locations/${locationId}/backups?path=${encodeURIComponent(path)}`)
+    const response = await fetch(`${API_BASE}/locations/${locationId}/backups?path=${encodeURIComponent(path)}`, {
+      headers: {
+        "X-Restic-Password": password,
+      },
+    })
     if (!response.ok) {
       const errorData = await response.json()
       throw new Error(errorData.error || "Failed to list backups")
@@ -211,6 +215,7 @@ document.addEventListener("DOMContentLoaded", async function () {
       return
     }
 
+    showLoadingOnButton(e.submitter)
     try {
       await addLocation(path, password)
       alert("Location added successfully!")
@@ -218,6 +223,7 @@ document.addEventListener("DOMContentLoaded", async function () {
     } catch (error) {
       alert("Error adding location: " + error.message)
     }
+    hideLoadingOnButton(e.submitter)
   })
 
   // Backup Directory Input - fetch size on change
@@ -249,15 +255,18 @@ document.addEventListener("DOMContentLoaded", async function () {
 
     if (!locationId || !directory || !password) {
       alert("Please fill in all fields including password")
+      hideLoadingOnButton(e.submitter)
       return
     }
 
+    showLoadingOnButton(e.submitter)
     try {
       await startBackup(locationId, directory, password)
     } catch (error) {
       console.error("Backup failed:", error)
       showDataInModal("Backup Error", error.message, false)
     }
+    hideLoadingOnButton(e.submitter)
   })
 
   // Restore Location Change
@@ -280,40 +289,50 @@ document.addEventListener("DOMContentLoaded", async function () {
       return
     }
 
+    const button = document.getElementById("listBackupsBtn")
     try {
-      const backupsData = await listBackups(locationId, directory)
+      const restorePassword = document.getElementById("restorePassword").value
+      if (!restorePassword) {
+        alert("Please enter password for restore operations")
+        return
+      }
+
+      showLoadingOnButton(button)
+      const backups = await listBackups(locationId, directory, restorePassword)
+
       document.getElementById("backupsList").classList.remove("hidden")
 
-      if (!backupsData || !backupsData.backups || backupsData.backups.length === 0) {
+      if (!backups || backups.length === 0) {
         document.getElementById("backupsContent").innerHTML =
           '<p class="text-center text-gray-500">No backups found for this directory</p>'
+        hideLoadingOnButton(button)
         return
       }
 
       let html = '<div class="space-y-4">'
 
-      backupsData.backups.forEach((backup, index) => {
-        const backupDate = new Date(backup.time).toLocaleString()
+      backups.forEach((backup, index) => {
+        const backupDate = new Date(backup.date).toLocaleString()
         const backupSize = backup.size ? formatBytes(backup.size) : "Unknown"
 
         html += `
                     <div class="border border-gray-200 rounded-lg p-4" data-backup-index="${index}">
                         <div class="flex justify-between items-start mb-3">
                             <div>
-                                <h4 class="font-medium text-gray-800">Snapshot: ${backup.id}</h4>
+                                <h4 class="font-medium text-gray-800">Snapshot: ${backup.snapshot_id}</h4>
                                 <p class="text-sm text-gray-600">Date: ${backupDate}</p>
                                 <p class="text-sm text-gray-600">Size: ${backupSize}</p>
                             </div>
                             <div class="flex space-x-2">
-                                <button onclick="showBackupFiles('${locationId}', '${backup.id}', ${index})" 
+                                <button onclick="showBackupFiles('${locationId}', '${backup.snapshot_id}', ${index}, this)" 
                                         class="bg-blue-500 text-white px-3 py-1 rounded text-sm hover:bg-blue-600">
                                     Show Files
                                 </button>
-                                <button onclick="showBackupLogs('${locationId}', '${backup.id}', ${index})" 
+                                <button onclick="showBackupLogs('${locationId}', '${backup.snapshot_id}', ${index}, this)" 
                                         class="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600">
                                     Show Logs
                                 </button>
-                                <button onclick="restoreBackupAction('${locationId}', '${backup.id}', ${index})" 
+                                <button onclick="restoreBackupAction('${locationId}', '${backup.snapshot_id}', ${index}, this)" 
                                         class="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600">
                                     Restore
                                 </button>
@@ -334,8 +353,25 @@ document.addEventListener("DOMContentLoaded", async function () {
         "backupsContent"
       ).innerHTML = `<p class="text-center text-red-500">Error loading backups: ${error.message}</p>`
     }
+    hideLoadingOnButton(button)
   })
 })
+
+// Loading utility functions
+function showLoadingOnButton(button) {
+  button.disabled = true
+  button.dataset.originalText = button.textContent
+  button.innerHTML =
+    '<span class="inline-flex items-center"><svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Loading...</span>'
+}
+
+function hideLoadingOnButton(button) {
+  button.disabled = false
+  if (button.dataset.originalText) {
+    button.innerHTML = button.dataset.originalText
+    delete button.dataset.originalText
+  }
+}
 
 // Modal function to display data (SSE or response)
 function showDataInModal(title, dataSource, isSSE = false) {
@@ -361,9 +397,9 @@ function showDataInModal(title, dataSource, isSSE = false) {
   // Handle regular response data
   else if (dataSource) {
     if (typeof dataSource === "string") {
-      modalContent.innerHTML = `<pre class="text-sm overflow-x-auto whitespace-pre-wrap">${dataSource}</pre>`
+      modalContent.innerHTML = `<pre class="text-xs overflow-x-auto whitespace-pre-wrap">${dataSource}</pre>`
     } else {
-      modalContent.innerHTML = `<pre class="text-sm overflow-x-auto">${JSON.stringify(dataSource, null, 2)}</pre>`
+      modalContent.innerHTML = `<pre class="text-xs overflow-x-auto">${JSON.stringify(dataSource, null, 2)}</pre>`
     }
   }
 
@@ -434,37 +470,66 @@ async function handleSSEInModal(responseBody, modalContent) {
 }
 
 // Button handler functions
-async function showBackupFiles(locationId, backupId) {
+async function showBackupFiles(locationId, backupId, index, button) {
+  const password = document.getElementById("restorePassword").value
+  if (!password) {
+    alert("Please enter the restore password")
+    return
+  }
+
+  showLoadingOnButton(button)
   try {
-    const response = await fetch(`/locations/${locationId}/backups/${backupId}`)
+    const response = await fetch(`${API_BASE}/locations/${locationId}/backups/${backupId}`, {
+      headers: {
+        "X-Restic-Password": password,
+      },
+    })
     if (!response.ok) {
       const errorData = await response.json()
       throw new Error(errorData.error || "Failed to fetch backup files")
     }
 
     const data = await response.json()
-    showDataInModal("Files in backup:", JSON.stringify(data, null, 2))
+    // Format files as "<file path>, size"
+    let formattedFiles = data
+      .map((file) => `${file.path}, ${typeof file.size === "number" ? formatBytes(file.size) : "-"}`)
+      .join("\n")
+    showDataInModal("Files in backup:", formattedFiles)
   } catch (error) {
     alert(`Error loading files: ${error.message}`)
   }
+  hideLoadingOnButton(button)
 }
 
-async function showBackupLogs(locationId, backupId) {
+async function showBackupLogs(locationId, backupId, index, button) {
+  const password = document.getElementById("restorePassword").value
+  if (!password) {
+    alert("Please enter the restore password")
+    return
+  }
+
+  showLoadingOnButton(button)
   try {
-    const response = await fetch(`/locations/${locationId}/backups/${backupId}?is_logs=1`)
+    const response = await fetch(`${API_BASE}/locations/${locationId}/backups/${backupId}?is_logs=1`, {
+      headers: {
+        "X-Restic-Password": password,
+      },
+    })
     if (!response.ok) {
       const errorData = await response.json()
       throw new Error(errorData.error || "Failed to fetch backup logs")
     }
-
     const data = await response.json()
-    showDataInModal("Backup logs:", JSON.stringify(data, null, 2))
+    // Display logs as plain text - backend returns {logs: "content"}
+    const logContent = data.logs || "No logs available"
+    showDataInModal("Backup Logs", logContent)
   } catch (error) {
     alert(`Error loading logs: ${error.message}`)
   }
+  hideLoadingOnButton(button)
 }
 
-async function restoreBackupAction(locationId, backupId, index) {
+async function restoreBackupAction(locationId, backupId, index, button) {
   const password = document.getElementById("restorePassword").value
   if (!password) {
     alert("Please enter the restore password")
@@ -478,6 +543,7 @@ async function restoreBackupAction(locationId, backupId, index) {
     return
   }
 
+  showLoadingOnButton(button)
   try {
     const response = await fetch(`${API_BASE}/locations/${locationId}/backups/${backupId}/restore`, {
       method: "POST",
@@ -499,4 +565,5 @@ async function restoreBackupAction(locationId, backupId, index) {
     console.error("Error starting restore:", error)
     showDataInModal(`Restore Error - Backup ${backupId}`, `Error: ${error.message}`, false)
   }
+  hideLoadingOnButton(button)
 }

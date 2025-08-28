@@ -364,7 +364,7 @@ def create_backup(location_id):
 
 @app.route('/locations/<location_id>/backups/<backup_id>', methods=['GET'])
 def list_backup_contents(location_id, backup_id):
-    """List contents of a specific backup"""
+    """List contents of a specific backup or retrieve backup logs"""
     try:
         password, error_response, status_code = get_password_from_header()
         if error_response:
@@ -374,6 +374,20 @@ def list_backup_contents(location_id, backup_id):
         if location_id not in config.get('locations', {}):
             return jsonify({'error': 'Location not found'}), 404
         
+        # Check if logs are requested
+        is_logs = request.args.get('is_logs', '0') == '1'
+        
+        if is_logs:
+            # Return backup logs
+            log_file = os.path.expanduser(f'~/backup_logs/{backup_id}.txt')
+            if os.path.exists(log_file):
+                with open(log_file, 'r') as f:
+                    logs = f.read()
+                return jsonify({'logs': logs})
+            else:
+                return jsonify({'logs': 'No logs found for this backup'})
+        
+        # Original file listing logic
         repo_path = config['locations'][location_id]['repo_path']
         directory_path = request.args.get('directory_path', '/')
         recursive = request.args.get('recursive', 'false').lower() == 'true'
