@@ -1,5 +1,5 @@
 // API Base URL
-const API_BASE = "http://20.42.15.153:5000"
+const API_BASE = window.location.protocol + "//" +  window.location.host
 
 // Global variables
 let config = {}
