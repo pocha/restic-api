@@ -195,7 +195,8 @@ async function loadScheduledBackups(locationId) {
       return
     }
 
-    const schedules = await response.json()
+    const data = await response.json()
+    const schedules = data.schedules || []
     displayScheduledBackups(schedules, locationId)
   } catch (error) {
     console.error('Error loading scheduled backups:', error)
