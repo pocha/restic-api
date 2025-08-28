@@ -223,7 +223,7 @@ function displayScheduledBackups(schedules, locationId) {
           </div>
         </div>
         <div class="flex space-x-2 ml-4">
-          <button onclick="triggerBackupNow('${locationId}', '${schedule.path}', this)" 
+          <button onclick="(async function(btn) { const password = document.getElementById('backupPassword').value; if (!password) { alert('Please enter the password in the form first'); return; } showLoadingOnButton(btn); try { await startBackup('${locationId}', '${schedule.path}', password); } catch (error) { console.error('Backup failed:', error); showDataInModal('Backup Error', error.message, false); } hideLoadingOnButton(btn); })(this)" 
                   class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm transition-colors">
             Backup Now
           </button>
@@ -235,24 +235,6 @@ function displayScheduledBackups(schedules, locationId) {
       </div>
     </div>
   `).join('')
-}
-
-async function triggerBackupNow(locationId, path, button) {
-  // Get password from the form
-  const password = document.getElementById('backupPassword').value
-  if (!password) {
-    alert('Please enter the password in the form first')
-    return
-  }
-
-  showLoadingOnButton(button)
-  try {
-    await startBackup(locationId, path, password)
-  } catch (error) {
-    console.error("Backup failed:", error)
-    showDataInModal("Backup Error", error.message, false)
-  }
-  hideLoadingOnButton(button)
 }
 
 async function deleteScheduledBackup(locationId, scheduleId, button) {
