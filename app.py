@@ -5,11 +5,25 @@ import threading
 import time
 import re
 from datetime import datetime
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response, send_from_directory
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
+
+# Serve the web UI
+@app.route('/')
+def index():
+    return send_from_directory('basic-web-ui', 'index.html')
+
+@app.route('/<path:filename>')
+def serve_static(filename):
+    if filename.startswith('basic-web-ui/'):
+        # Remove the basic-web-ui/ prefix and serve from the directory
+        actual_filename = filename[len('basic-web-ui/'):]
+        return send_from_directory('basic-web-ui', actual_filename)
+    return "File not found", 404
+    return "File not found", 404
 
 CONFIG_FILE = os.path.expanduser('~/config.json')
 
@@ -206,6 +220,9 @@ def init_location():
             return jsonify({'error': 'location and password are required'}), 400
         
         location = data['location']
+        if not os.path.exists(location):
+            return jsonify({'error': 'location provided does not exist'}), 400
+
         password = data['password']
         
         # Initialize restic repository
@@ -325,6 +342,8 @@ def create_backup(location_id):
         
         repo_path = config['locations'][location_id]['repo_path']
         backup_path = data['path']
+        if not os.path.exists(backup_path):
+            return jsonify({'error': 'backup_path provided does not exist'}), 400
         
         # Add backup path to location's paths list if not already present
         if backup_path not in config['locations'][location_id]['paths']:
@@ -435,6 +454,51 @@ def restore_backup(location_id, backup_id):
         
         return Response(event_stream(), mimetype='text/event-stream')
         
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/size', methods=['GET'])
+def get_directory_size():
+    """Get directory size information"""
+    path = request.args.get('path')
+    if not path:
+        return jsonify({'error': 'Path parameter is required'}), 400
+    
+    try:
+        import shutil
+        import os
+        
+        # Get total and used space for the path
+        if os.path.exists(path):
+            # Get directory size (used space)
+            if os.path.isdir(path):
+                total_size = 0
+                for dirpath, dirnames, filenames in os.walk(path):
+                    for filename in filenames:
+                        filepath = os.path.join(dirpath, filename)
+                        try:
+                            total_size += os.path.getsize(filepath)
+                        except (OSError, IOError):
+                            # Skip files that can't be accessed
+                            continue
+                used_space = total_size
+            else:
+                # Single file
+                used_space = os.path.getsize(path)
+            
+            # Get total disk space for the filesystem containing this path
+            total_space, used_disk, free_space = shutil.disk_usage(path)
+            
+            return jsonify({
+                'path': path,
+                'used': used_space,
+                'total': total_space,
+                'free': free_space,
+                'used_disk': used_disk
+            })
+        else:
+            return jsonify({'error': 'Path does not exist'}), 404
+            
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
