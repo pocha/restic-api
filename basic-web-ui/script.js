@@ -157,33 +157,36 @@ async function fetchLocationsAndStoreLocally() {
   }))
 }
 
-
 // Scheduling functions
 async function scheduleBackup(locationId, path, password, frequency, time) {
   const response = await fetch(`/locations/${locationId}/backups/schedule`, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
-      'X-Password': password
+      "Content-Type": "application/json",
+      "X-Password": password,
     },
     body: JSON.stringify({
       path: path,
       frequency: frequency,
-      time: time
-    })
+      time: time,
+    }),
   })
 
   if (!response.ok) {
     const error = await response.json()
-    throw new Error(error.error || 'Failed to schedule backup')
+    throw new Error(error.error || "Failed to schedule backup")
   }
 
   const result = await response.json()
-  showDataInModal("Backup Scheduled", `Backup scheduled successfully!\nSchedule ID: ${result.schedule_id}\nPath: ${path}\nFrequency: ${frequency}\nTime: ${time}`, false)
-  
+  showDataInModal(
+    "Backup Scheduled",
+    `Backup scheduled successfully!\nSchedule ID: ${result.schedule_id}\nPath: ${path}\nFrequency: ${frequency}\nTime: ${time}`,
+    false
+  )
+
   // Refresh the scheduled backups list
   await loadScheduledBackups(locationId)
-  
+
   return result
 }
 
@@ -191,7 +194,7 @@ async function loadScheduledBackups(locationId) {
   try {
     const response = await fetch(`/locations/${locationId}/backups/schedule`)
     if (!response.ok) {
-      console.error('Failed to load scheduled backups')
+      console.error("Failed to load scheduled backups")
       return
     }
 
@@ -199,21 +202,23 @@ async function loadScheduledBackups(locationId) {
     const schedules = data.schedules || []
     displayScheduledBackups(schedules, locationId)
   } catch (error) {
-    console.error('Error loading scheduled backups:', error)
+    console.error("Error loading scheduled backups:", error)
   }
 }
 
 function displayScheduledBackups(schedules, locationId) {
-  const scheduledBackupsList = document.getElementById('scheduledBackupsList')
-  const scheduledBackupsContent = document.getElementById('scheduledBackupsContent')
-  
+  const scheduledBackupsList = document.getElementById("scheduledBackupsList")
+  const scheduledBackupsContent = document.getElementById("scheduledBackupsContent")
+
   if (schedules.length === 0) {
-    scheduledBackupsList.classList.add('hidden')
+    scheduledBackupsList.classList.add("hidden")
     return
   }
 
-  scheduledBackupsList.classList.remove('hidden')
-  scheduledBackupsContent.innerHTML = schedules.map(schedule => `
+  scheduledBackupsList.classList.remove("hidden")
+  scheduledBackupsContent.innerHTML = schedules
+    .map(
+      (schedule) => `
     <div class="bg-gray-50 p-4 rounded-lg border">
       <div class="flex justify-between items-start">
         <div class="flex-1">
@@ -235,23 +240,25 @@ function displayScheduledBackups(schedules, locationId) {
         </div>
       </div>
     </div>
-  `).join('')
+  `
+    )
+    .join("")
 }
 
 async function deleteScheduledBackup(locationId, scheduleId, button) {
-  if (!confirm('Are you sure you want to delete this scheduled backup?')) {
+  if (!confirm("Are you sure you want to delete this scheduled backup?")) {
     return
   }
 
   showLoadingOnButton(button)
   try {
     const response = await fetch(`/locations/${locationId}/backups/schedule/${scheduleId}`, {
-      method: 'DELETE'
+      method: "DELETE",
     })
 
     if (!response.ok) {
       const error = await response.json()
-      throw new Error(error.error || 'Failed to delete scheduled backup')
+      throw new Error(error.error || "Failed to delete scheduled backup")
     }
 
     // Refresh the scheduled backups list
@@ -336,9 +343,13 @@ document.addEventListener("DOMContentLoaded", async function () {
   // Load initial data
   loadLocations()
 
+  // load all scheduled backups
+  for (const location of locationsArray) {
+    loadScheduledBackups(location.id)
+  }
+
   // Update dropdowns
   updateLocationDropdowns()
-
 
   // Backup Location dropdown change handler
   document.getElementById("backupLocation").addEventListener("change", async function (e) {
@@ -347,7 +358,7 @@ document.addEventListener("DOMContentLoaded", async function () {
       await loadScheduledBackups(locationId)
     } else {
       // Hide scheduled backups list when no location is selected
-      document.getElementById('scheduledBackupsList').classList.add('hidden')
+      document.getElementById("scheduledBackupsList").classList.add("hidden")
     }
   })
   // Add Location Form
