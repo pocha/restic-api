@@ -157,6 +157,130 @@ async function fetchLocationsAndStoreLocally() {
   }))
 }
 
+
+// Scheduling functions
+async function scheduleBackup(locationId, path, password, frequency, time) {
+  const response = await fetch(`/locations/${locationId}/backups/schedule`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Password': password
+    },
+    body: JSON.stringify({
+      path: path,
+      frequency: frequency,
+      time: time
+    })
+  })
+
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.error || 'Failed to schedule backup')
+  }
+
+  const result = await response.json()
+  showDataInModal("Backup Scheduled", `Backup scheduled successfully!\nSchedule ID: ${result.schedule_id}\nPath: ${path}\nFrequency: ${frequency}\nTime: ${time}`, false)
+  
+  // Refresh the scheduled backups list
+  await loadScheduledBackups(locationId)
+  
+  return result
+}
+
+async function loadScheduledBackups(locationId) {
+  try {
+    const response = await fetch(`/locations/${locationId}/backups/schedule`)
+    if (!response.ok) {
+      console.error('Failed to load scheduled backups')
+      return
+    }
+
+    const schedules = await response.json()
+    displayScheduledBackups(schedules, locationId)
+  } catch (error) {
+    console.error('Error loading scheduled backups:', error)
+  }
+}
+
+function displayScheduledBackups(schedules, locationId) {
+  const scheduledBackupsList = document.getElementById('scheduledBackupsList')
+  const scheduledBackupsContent = document.getElementById('scheduledBackupsContent')
+  
+  if (schedules.length === 0) {
+    scheduledBackupsList.classList.add('hidden')
+    return
+  }
+
+  scheduledBackupsList.classList.remove('hidden')
+  scheduledBackupsContent.innerHTML = schedules.map(schedule => `
+    <div class="bg-gray-50 p-4 rounded-lg border">
+      <div class="flex justify-between items-start">
+        <div class="flex-1">
+          <div class="text-sm font-medium text-gray-900">${schedule.path}</div>
+          <div class="text-sm text-gray-600 mt-1">
+            <span class="inline-block mr-4">Frequency: ${schedule.frequency}</span>
+            <span class="inline-block">Time: ${schedule.time}</span>
+          </div>
+        </div>
+        <div class="flex space-x-2 ml-4">
+          <button onclick="triggerBackupNow('${locationId}', '${schedule.path}', this)" 
+                  class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm transition-colors">
+            Backup Now
+          </button>
+          <button onclick="deleteScheduledBackup('${locationId}', '${schedule.schedule_id}', this)" 
+                  class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition-colors">
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  `).join('')
+}
+
+async function triggerBackupNow(locationId, path, button) {
+  // Get password from the form
+  const password = document.getElementById('backupPassword').value
+  if (!password) {
+    alert('Please enter the password in the form first')
+    return
+  }
+
+  showLoadingOnButton(button)
+  try {
+    await startBackup(locationId, path, password)
+  } catch (error) {
+    console.error("Backup failed:", error)
+    showDataInModal("Backup Error", error.message, false)
+  }
+  hideLoadingOnButton(button)
+}
+
+async function deleteScheduledBackup(locationId, scheduleId, button) {
+  if (!confirm('Are you sure you want to delete this scheduled backup?')) {
+    return
+  }
+
+  showLoadingOnButton(button)
+  try {
+    const response = await fetch(`/locations/${locationId}/backups/schedule/${scheduleId}`, {
+      method: 'DELETE'
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to delete scheduled backup')
+    }
+
+    // Refresh the scheduled backups list
+    await loadScheduledBackups(locationId)
+    showDataInModal("Schedule Deleted", "Scheduled backup deleted successfully!", false)
+  } catch (error) {
+    console.error("Delete failed:", error)
+    showDataInModal("Delete Error", error.message, false)
+  }
+  hideLoadingOnButton(button)
+}
+
 // UI functions
 async function loadLocations() {
   showLoading("locationsList")
@@ -232,6 +356,17 @@ document.addEventListener("DOMContentLoaded", async function () {
   // Update dropdowns
   updateLocationDropdowns()
 
+
+  // Backup Location dropdown change handler
+  document.getElementById("backupLocation").addEventListener("change", async function (e) {
+    const locationId = e.target.value
+    if (locationId) {
+      await loadScheduledBackups(locationId)
+    } else {
+      // Hide scheduled backups list when no location is selected
+      document.getElementById('scheduledBackupsList').classList.add('hidden')
+    }
+  })
   // Add Location Form
   document.getElementById("addLocationForm").addEventListener("submit", async function (e) {
     e.preventDefault()
@@ -282,19 +417,21 @@ document.addEventListener("DOMContentLoaded", async function () {
     const locationId = formData.get("location")
     const directory = formData.get("path")
     const password = formData.get("password")
+    const frequency = formData.get("frequency")
+    const time = formData.get("time")
 
-    if (!locationId || !directory || !password) {
-      alert("Please fill in all fields including password")
+    if (!locationId || !directory || !password || !frequency || !time) {
+      alert("Please fill in all fields including password, frequency, and time")
       hideLoadingOnButton(e.submitter)
       return
     }
 
     showLoadingOnButton(e.submitter)
     try {
-      await startBackup(locationId, directory, password)
+      await scheduleBackup(locationId, directory, password, frequency, time)
     } catch (error) {
-      console.error("Backup failed:", error)
-      showDataInModal("Backup Error", error.message, false)
+      console.error("Backup scheduling failed:", error)
+      showDataInModal("Backup Scheduling Error", error.message, false)
     }
     hideLoadingOnButton(e.submitter)
   })
