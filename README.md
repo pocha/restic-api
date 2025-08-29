@@ -1,6 +1,12 @@
-# Restic API Server
+# Restic API Server with a basic web UI 
 
-A REST API server that provides a web interface for the restic backup tool.
+An alternative to Backrest, popular Web UI tool for Restic, which I found tad too complicated to operate. This is a simpler version. 
+
+It comes bundled with a API server so if you want to do your own client (like a mobile app or something), it should be doable. Things are kept fairly basic & will be developed depending on my own need going ahead (or based on what issues/requests people are raising). 
+
+![Nonbios](https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQRqlsOSv4d0NPxb9v8942a_7BdWRcYWKpwMw&s)
+
+The project is built using [nonbios.ai](https://nonbios.ai) . I wrote very minimal code & it was nonbios which did most of the heavy lifting. 
 
 ## Quick Start
 
