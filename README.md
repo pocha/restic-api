@@ -1,6 +1,8 @@
 # Restic API Server with a basic web UI 
 
-An alternative to Backrest, popular Web UI tool for Restic, which I found tad too complicated to operate. This is a simpler version. 
+An alternative to [Backrest](https://github.com/garethgeorge/backrest), popular Web UI tool for Restic, which I found tad too complicated to operate. This is a simpler version. 
+
+![restic-api-screenshot](/img/restic-screenshot.png)
 
 It comes bundled with a API server so if you want to do your own client (like a mobile app or something), it should be doable. Things are kept fairly basic & will be developed depending on my own need going ahead (or based on what issues/requests people are raising). 
 
