@@ -197,7 +197,7 @@ function displayScheduledBackups(schedules, locationId) {
           </div>
         </div>
         <div class="flex space-x-2 ml-4">
-          <button onclick="(async function(btn) { const password = document.getElementById('backupPassword').value; if (!password) { alert('Please enter the password in the form first'); return; } showLoadingOnButton(btn); try { await startBackup('${locationId}', '${schedule.path}', password); } catch (error) { console.error('Backup failed:', error); showDataInModal('Backup Error', error.message, false); } hideLoadingOnButton(btn); })(this)" 
+          <button onclick="(async function(btn) { const password = prompt('Enter backup location password'); if (!password) { alert('Please enter the password in the form first'); return; } showLoadingOnButton(btn); try { await startBackup('${locationId}', '${schedule.path}', password); } catch (error) { console.error('Backup failed:', error); showDataInModal('Backup Error', error.message, false); } hideLoadingOnButton(btn); })(this)" 
                   class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm transition-colors">
             Backup Now
           </button>
@@ -519,6 +519,10 @@ async function restoreBackupAction(locationId, backupId, index, button) {
 async function resetScheduledBackupList() {
   const scheduledBackupsList = document.getElementById("scheduledBackupsList")
   scheduledBackupsList.classList.add("hidden")
+  
+  const scheduledBackupsContent = document.getElementById("scheduledBackupsContent")
+  scheduledBackupsContent.innerHTML = ""
+
 
   for (const location of locationsArray) {
     loadScheduledBackups(location.id)

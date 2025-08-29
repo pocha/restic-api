@@ -82,8 +82,6 @@ test('Complete backup scheduling workflow', async ({ page }) => {
     await page.fill('#locationPassword', 'testpassword123');
     await page.click('button[type="submit"]');
 
-    // Wait for location to be added and appear in the list
-    await page.waitForTimeout(3000);
     // Wait for loading to complete - loading indicator should disappear
     await page.waitForFunction(() => {
       const locationsList = document.getElementById('locationsList');
@@ -106,42 +104,49 @@ test('Complete backup scheduling workflow', async ({ page }) => {
     // Step 3: Schedule a backup
     await page.selectOption('#backupLocation', { index: 1 }); // Select first location
     await page.fill('#backupPath', backupDir);
+    await page.fill('#backupPassword', 'testpassword123');
+
     await page.selectOption('#backupFrequency', 'daily');
     await page.fill('#backupTime', '10:30');
     await page.click('button:has-text("Schedule Backup")');
 
-    // Wait for schedule to be created
-    await page.waitForTimeout(3000);
-
-    // Wait for schedule to be created
-    await page.waitForTimeout(3000);
+    
 
     // Step 4: Verify scheduled entry shows in UI
-    await page.waitForTimeout(1000);
+    // Wait for schedule to be created
+    // await page.waitForTimeout(3000);
+    // close modal
+    await page.click('#closeModalBtn', {timeout: 3000}) //timeout to wait for scheduling to be over & button to be visible
     await expect(page.locator('#scheduledBackupsList')).toBeVisible();
     await expect(page.locator('#scheduledBackupsContent')).toContainText(backupDir);
     await expect(page.locator('#scheduledBackupsContent')).toContainText('daily');
     await expect(page.locator('#scheduledBackupsContent')).toContainText('10:30');
     console.log('✓ Scheduled backup entry verified in UI');
+  
 
     // Step 5: Hit the "Backup Now" button
+     page.once('dialog', async (dialog) => {
+      // Fill the prompt with password
+      await dialog.accept('testpassword123'); 
+    });
     await page.click('button:has-text("Backup Now")');
 
     // Wait for backup modal to appear and complete
     await expect(page.locator('#dataModal')).toBeVisible();
-    await page.waitForTimeout(1000);
 
     // Wait for backup to complete (look for success message or modal close)
     await page.waitForFunction(() => {
-      const modal = document.querySelector('#backupModal');
-      const output = document.querySelector('#backupOutput');
-      return !modal || modal.style.display === 'none' || 
-             (output && output.textContent.includes('snapshot') && output.textContent.includes('saved'));
+      const output = document.querySelector('#modalContent');
+      return output && output.textContent.includes('Operation completed successfully!');
     }, { timeout: 30000 });
-
+    
+    await page.click('#closeModalBtn')
     console.log('✓ Backup completed successfully');
 
+   
+
     // Step 6: List backups to ensure one snapshot is showing
+    await page.reload() //reload needed for restoreDirectory to be populated
     await page.selectOption('#restoreLocation', { index: 1 });
     await page.selectOption('#restoreDirectory', backupDir);
     await page.fill('#restorePassword', 'testpassword123');
@@ -149,34 +154,35 @@ test('Complete backup scheduling workflow', async ({ page }) => {
     await page.waitForTimeout(2000);
 
     const snapshotItems = page.locator('[data-backup-index]');
+
     await expect(snapshotItems).toHaveCount(1);
     console.log('✓ One snapshot verified in backup list');
 
     // Step 7: Delete the scheduled backup
+     page.once('dialog', async (dialog) => {
+      // Fill the prompt with password
+      await dialog.accept('testpassword123'); 
+    });
     await page.click('button:has-text("Delete")');
-    await page.waitForTimeout(2000);
-
+    await page.click('#closeModalBtn', {timeout: 20000})
     // Verify scheduled backup is removed from UI
-    await expect(page.locator('#scheduledBackupsContent div.bg-gray-50')).toHaveCount(0);
+    await expect(page.locator('#scheduledBackupsContent')).toBeEmpty();
     console.log('✓ Scheduled backup deleted and removed from UI');
 
     // Step 9: List backups again (should still have the snapshot)
     await page.click('#listBackupsBtn');
     await page.waitForTimeout(2000);
-    const snapshotItemsAfterDelete = page.locator('.snapshot-item');
+    const snapshotItemsAfterDelete = page.locator('#backupsList > div');
     await expect(snapshotItemsAfterDelete).toHaveCount(1);
     console.log('✓ Snapshot still exists after schedule deletion');
 
     // Step 10: Click on the snapshot and show files
-    await page.click('[data-backup-index]');
-    await page.waitForTimeout(1000);
-
-    // Click show files button
     await page.click('button:has-text("Show Files")');
     await page.waitForTimeout(2000);
 
     // Verify files are shown
     await expect(page.locator('#modalContent pre')).toHaveCount(1);
+    await page.click('#closeModalBtn')
     console.log('✓ Snapshot files displayed');
 
     // Step 11: Show logs
@@ -185,36 +191,33 @@ test('Complete backup scheduling workflow', async ({ page }) => {
 
     // Verify logs are displayed
     await expect(page.locator('#dataModal')).toBeVisible();
-    await expect(page.locator('#modalContent')).toContainText('backup');
-    
-    // Close logs modal
-    await page.click('#closeModal');
-    await page.waitForTimeout(500);
-    // Close logs modal
-    await page.click('#closeModalBtn');
+    await expect(page.locator('#modalContent')).toContainText('backup', {timeout: 1000});
+    await page.click('#closeModalBtn')
+
     console.log('✓ Backup logs displayed');
 
     // Step 12: Prepare for restore - rename the original directory
     fs.renameSync(backupDir, backupDirRenamed);
     console.log('✓ Original backup directory renamed');
 
+    
+    page.once('dialog', async (dialog) => {
+      // Fill the prompt with password
+      await dialog.accept('/'); 
+    });
+
     // Step 13: Perform restore
-    await page.fill('input[placeholder="Enter path to restore to"]', backupDir);
     await page.click('button:has-text("Restore")');
 
     // Wait for restore modal and completion
     await expect(page.locator('#dataModal')).toBeVisible();
+     
     await page.waitForFunction(() => {
-      const output = document.querySelector('#restoreOutput');
-      return output && (output.textContent.includes('Restore completed') || 
-                       output.textContent.includes('restored') ||
-                       output.textContent.includes('success'));
-    }, { timeout: 60000 });
+      const output = document.querySelector('#modalContent');
+      return output && output.textContent.includes('Operation completed successfully!');
+    }, { timeout: 30000 });
 
     console.log('✓ Restore completed');
-
-    // Step 14: Compare restored content with original
-    await page.waitForTimeout(2000);
 
     // Verify restored directory exists
     if (!fs.existsSync(backupDir)) {

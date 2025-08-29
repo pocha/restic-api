@@ -28,17 +28,17 @@ npx playwright install
 
 ### Run all tests in headless mode:
 ```bash
-npx playwright test
+cp test-data/config.json ~/config.json & npx playwright test
 ```
 
 ### Run a specific test file:
 ```bash
-npx playwright test backup-scheduling.spec.js
+cp test-data/config.json ~/config.json & npx playwright test backup-scheduling.spec.js
 ```
 
 ### Run tests with UI (headed mode):
 ```bash
-npx playwright test --headed
+cp test-data/config.json ~/config.json & npx playwright test --headed
 ```
 
 ### Run tests with debug mode:
