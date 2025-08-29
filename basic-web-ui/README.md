@@ -1,11 +1,16 @@
 # Restic API Web UI - Testing Guide
 
 This directory contains the web UI for the Restic API and its automated tests.
+Web-ui is accessible on / once you start the server with `start_server.sh` script in the main directory. Eg. `http://localhost:5000`
+
+Follow steps below to run the playwright UI tests: 
 
 ## Prerequisites
 
 - Node.js (version 14 or higher)
 - npm or yarn package manager
+
+We recommend installing nodejs with npm from official Nodejs website using nvm. Link [here](https://nodejs.org/en/download/)
 
 ## Installation
 
@@ -25,6 +30,10 @@ npx playwright install
 ```
 
 ## Running Tests
+
+> Running tests will overwrite your config.json file in your home directory. Back it up before you run the test & revert it after running the test
+
+Normally, you would only need to run the test at the start to check if the UI works as expected. The tests are tested to be run on Linux machine only as of now. 
 
 ### Run all tests in headless mode:
 ```bash
