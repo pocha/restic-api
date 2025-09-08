@@ -400,6 +400,12 @@ def create_backup(location_id):
             backup_command = data['command']
             filename = data['filename']
             
+
+            # Add command backup path to location's paths list for restore functionality
+            command_backup_path = "/" + filename
+            if command_backup_path not in config['locations'][location_id]['paths']:
+                config['locations'][location_id]['paths'].append(command_backup_path)
+                save_config(config)
             cmd = ['restic', 'backup', '--stdin', '--stdin-from-command', backup_command, 
                    '--stdin-filename', filename, '--repo', repo_path, '--verbose']
         else:
@@ -556,13 +562,6 @@ def create_cron_job(schedule_id, location_id, backup_data, cron_expression, key=
             else:
                 # For directory-based backups
                 backup_cmd = f"curl -X POST -H 'Content-Type: application/json' -d '{{\"path\": \"{backup_data['path']}\", \"key\": \"{key}\"}}' http://localhost:5000/locations/{location_id}/backups"
-        else:
-            if backup_data.get('type') == 'command':
-                # For command-based backups
-                backup_cmd = f"curl -X POST -H 'X-Restic-Password: PLACEHOLDER' -H 'Content-Type: application/json' -d '{{\"type\": \"command\", \"command\": \"{backup_data['command']}\", \"filename\": \"{backup_data['filename']}\"}}' http://localhost:5000/locations/{location_id}/backups"
-            else:
-                # For directory-based backups
-                backup_cmd = f"curl -X POST -H 'X-Restic-Password: PLACEHOLDER' -H 'Content-Type: application/json' -d '{{\"path\": \"{backup_data['path']}\"}}' http://localhost:5000/locations/{location_id}/backups"
         
         job = cron.new(command=backup_cmd, comment=f"restic_schedule_{schedule_id}")
         job.setall(cron_expression)
