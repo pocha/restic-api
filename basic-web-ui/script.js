@@ -90,15 +90,36 @@ async function addLocation(path, password) {
   }
 }
 
-async function startBackup(locationId, path, password) {
+async function startBackup(locationId, backupData, password) {
   try {
+    let requestBody;
+    
+    // Handle different backup types
+    if (typeof backupData === 'string') {
+      // Legacy support: if backupData is a string, treat it as a directory path
+      requestBody = { type: 'directory', path: backupData };
+    } else if (backupData.type === 'command') {
+      // Command backup
+      requestBody = { 
+        type: 'command', 
+        command: backupData.command, 
+        filename: backupData.filename 
+      };
+    } else {
+      // Directory backup
+      requestBody = { 
+        type: 'directory', 
+        path: backupData.path 
+      };
+    }
+
     const response = await fetch(`${API_BASE}/locations/${locationId}/backups`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Restic-Password": password,
       },
-      body: JSON.stringify({ path: path }),
+      body: JSON.stringify(requestBody),
     })
 
     if (!response.ok) {
@@ -146,18 +167,32 @@ async function fetchLocationsAndStoreLocally() {
 }
 
 // Scheduling functions
-async function scheduleBackup(locationId, path, password, frequency, time) {
+async function scheduleBackup(locationId, backupData, password, frequency, time) {
+  // Generate a unique key for password store
+  const key = `backup_${locationId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+  
+  const requestBody = {
+    type: backupData.type,
+    frequency: frequency,
+    time: time,
+    key: key  // Add key for password store lookup
+  }
+
+  // Add backup-specific data based on type
+  if (backupData.type === "directory") {
+    requestBody.path = backupData.path
+  } else if (backupData.type === "command") {
+    requestBody.command = backupData.command
+    requestBody.filename = backupData.filename
+  }
+
   const response = await fetch(`/locations/${locationId}/backups/schedule`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Password": password,
+      "X-Restic-Password": password,  // Correct header name
     },
-    body: JSON.stringify({
-      path: path,
-      frequency: frequency,
-      time: time,
-    }),
+    body: JSON.stringify(requestBody),
   })
 
   if (!response.ok) {
@@ -166,9 +201,18 @@ async function scheduleBackup(locationId, path, password, frequency, time) {
   }
 
   const result = await response.json()
+  
+  // Create appropriate success message based on backup type
+  let backupInfo = ""
+  if (backupData.type === "directory") {
+    backupInfo = `Path: ${backupData.path}`
+  } else if (backupData.type === "command") {
+    backupInfo = `Command: ${backupData.command}\nFilename: ${backupData.filename}`
+  }
+  
   showDataInModal(
     "Backup Scheduled",
-    `Backup scheduled successfully!\nSchedule ID: ${result.schedule_id}\nPath: ${path}\nFrequency: ${frequency}\nTime: ${time}`,
+    `Backup scheduled successfully!\nSchedule ID: ${result.schedule_id}\nType: ${backupData.type}\n${backupInfo}\nFrequency: ${frequency}\nTime: ${time}`,
     false
   )
 
@@ -208,14 +252,14 @@ function displayScheduledBackups(schedules, locationId) {
     <div class="bg-gray-50 p-4 rounded-lg border">
       <div class="flex justify-between items-start">
         <div class="flex-1">
-          <div class="text-sm font-medium text-gray-900">${schedule.path}</div>
+          <div class="text-sm font-medium text-gray-900">${schedule.type === 'command' ? `Command: ${schedule.command}` : `Path: ${schedule.path}`}</div>
           <div class="text-sm text-gray-600 mt-1">
             <span class="inline-block mr-4">Frequency: ${schedule.frequency}</span>
             <span class="inline-block">Time: ${schedule.time}</span>
           </div>
         </div>
         <div class="flex space-x-2 ml-4">
-          <button onclick="(async function(btn) { const password = prompt('Enter backup location password'); if (!password) { alert('Please enter the password in the form first'); return; } showLoadingOnButton(btn); try { await startBackup('${locationId}', '${schedule.path}', password); } catch (error) { console.error('Backup failed:', error); showDataInModal('Backup Error', error.message, false); } hideLoadingOnButton(btn); })(this)" 
+          <button onclick="(async function(btn) { const password = prompt('Enter backup location password'); if (!password) { alert('Please enter the password in the form first'); return; } showLoadingOnButton(btn); try { if ('${schedule.type}' === 'command') { await startBackup('${locationId}', { type: 'command', command: '${schedule.command}', filename: '${schedule.filename}' }, password); } else { await startBackup('${locationId}', { type: 'directory', path: '${schedule.path}' }, password); } } catch (error) { console.error('Backup failed:', error); showDataInModal('Backup Error', error.message, false); } hideLoadingOnButton(btn); })(this)" 
                   class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm transition-colors">
             Backup Now
           </button>
@@ -608,20 +652,46 @@ document.addEventListener("DOMContentLoaded", async function () {
 
     const formData = new FormData(e.target)
     const locationId = formData.get("location")
-    const directory = formData.get("path")
+    const backupType = formData.get("backupType")
     const password = formData.get("password")
     const frequency = formData.get("frequency")
     const time = formData.get("time")
 
-    if (!locationId || !directory || !password || !frequency || !time) {
-      alert("Please fill in all fields including password, frequency, and time")
+    // Basic validation
+    if (!locationId || !backupType || !password || !frequency || !time) {
+      alert("Please fill in all required fields including backup type, password, frequency, and time")
+      hideLoadingOnButton(e.submitter)
+      return
+    }
+
+    let backupData = {}
+    
+    if (backupType === "directory") {
+      const directory = formData.get("path")
+      if (!directory) {
+        alert("Please specify the directory to backup")
+        hideLoadingOnButton(e.submitter)
+        return
+      }
+      backupData = { type: "directory", path: directory }
+    } else if (backupType === "command") {
+      const command = formData.get("command")
+      const filename = formData.get("filename")
+      if (!command || !filename) {
+        alert("Please specify both command and filename for command backup")
+        hideLoadingOnButton(e.submitter)
+        return
+      }
+      backupData = { type: "command", command: command, filename: filename }
+    } else {
+      alert("Invalid backup type selected")
       hideLoadingOnButton(e.submitter)
       return
     }
 
     showLoadingOnButton(e.submitter)
     try {
-      await scheduleBackup(locationId, directory, password, frequency, time)
+      await scheduleBackup(locationId, backupData, password, frequency, time)
     } catch (error) {
       console.error("Backup scheduling failed:", error)
       showDataInModal("Backup Scheduling Error", error.message, false)
