@@ -275,6 +275,282 @@ def test_restic_installation():
             except Exception as e:
                 print(f"⚠️  Warning: Could not restore original binary: {e}")
 
+def test_command_based_backup():
+    """Test command-based backup functionality"""
+    print("\n🔧 Testing command-based backup...")
+    
+    try:
+        # Create temporary directories
+        import tempfile
+        repo_dir = tempfile.mkdtemp(prefix='restic_repo_cmd_', dir='/tmp')
+        restore_dir = tempfile.mkdtemp(prefix='restore_cmd_', dir='/tmp')
+        
+        # Set proper permissions
+        os.chmod(repo_dir, 0o755)
+        os.chmod(restore_dir, 0o755)
+        
+        print(f"✅ Repository directory: {repo_dir}")
+        print(f"✅ Restore target directory: {restore_dir}")
+        
+        # Step 1: Initialize repository
+        print("\n🔧 Initializing restic repository...")
+        response = requests.post(f'{BASE_URL}/init', json={
+            'repo_path': repo_dir,
+            'password': 'test123'
+        })
+        
+        if response.status_code != 200:
+            print(f"❌ Repository initialization failed: {response.status_code}")
+            return False
+        
+        print("✅ Repository initialized successfully")
+        
+        # Step 2: Perform command-based backup
+        print("\n💾 Performing command-based backup...")
+        response = requests.post(f'{BASE_URL}/backup', json={
+            'repo_path': repo_dir,
+            'password': 'test123',
+            'type': 'command',
+            'command': 'cat /etc/hostname',
+            'filename': 'hostname.txt',
+            'backup_name': 'test-command-backup'
+        })
+        
+        if response.status_code != 200:
+            print(f"❌ Command backup failed: {response.status_code}")
+            print(f"Response: {response.text}")
+            return False
+        
+        print("✅ Command backup completed successfully")
+        
+        # Step 3: List snapshots
+        print("\n📋 Listing snapshots...")
+        response = requests.post(f'{BASE_URL}/snapshots', json={
+            'repo_path': repo_dir,
+            'password': 'test123'
+        })
+        
+        if response.status_code != 200:
+            print(f"❌ Failed to list snapshots: {response.status_code}")
+            return False
+        
+        snapshots = response.json()
+        if not snapshots:
+            print("❌ No snapshots found")
+            return False
+        
+        print(f"✅ Found {len(snapshots)} snapshot(s)")
+        snapshot_id = snapshots[0]['short_id']
+        print(f"✅ Using snapshot: {snapshot_id}")
+        
+        # Step 4: Restore backup
+        print("\n🔄 Restoring command backup...")
+        response = requests.post(f'{BASE_URL}/restore', json={
+            'repo_path': repo_dir,
+            'password': 'test123',
+            'snapshot_id': snapshot_id,
+            'restore_path': restore_dir
+        })
+        
+        if response.status_code != 200:
+            print(f"❌ Restore failed: {response.status_code}")
+            return False
+        
+        print("✅ Restore completed successfully")
+        
+        # Step 5: Verify restored file
+        print("\n🔍 Verifying restored file...")
+        restored_file = os.path.join(restore_dir, 'hostname.txt')
+        if not os.path.exists(restored_file):
+            print("❌ Restored file not found: hostname.txt")
+            return False
+        
+        with open(restored_file, 'r') as f:
+            content = f.read().strip()
+        
+        if not content:
+            print("❌ Restored file is empty")
+            return False
+        
+        print(f"✅ Verified restored file content: {content}")
+        print("✅ Command-based backup test passed!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Command backup test failed with exception: {e}")
+        return False
+
+def test_schedule_functionality():
+    """Test backup scheduling functionality with command-based backup"""
+    print("\n📅 Testing backup scheduling functionality...")
+
+    try:
+        # Create temporary directories
+        import tempfile
+        import time
+        repo_dir = tempfile.mkdtemp(prefix='restic_repo_schedule_', dir='/tmp')
+
+        # Set proper permissions
+        os.chmod(repo_dir, 0o755)
+
+        print(f"✅ Repository directory: {repo_dir}")
+
+        # Step 1: Initialize repository
+        print("\n🔧 Initializing restic repository...")
+        response = requests.post(f'{BASE_URL}/init', json={
+            'repo_path': repo_dir,
+            'password': 'test123'
+        })
+
+        if response.status_code != 200:
+            print(f"❌ Repository initialization failed: {response.status_code}")
+            return False
+
+        print("✅ Repository initialized successfully")
+
+        # Step 2: Create a scheduled backup with command
+        print("\n📅 Creating scheduled backup...")
+        schedule_data = {
+            'repo_path': repo_dir,
+            'key': 'test_schedule_key',  # Using key instead of password
+            'type': 'command',
+            'command': 'cat /etc/hostname',
+            'filename': 'scheduled_hostname.txt',
+            'backup_name': 'scheduled-test-backup',
+            'schedule': '*/5 * * * *'  # Every 5 minutes
+        }
+
+        response = requests.post(f'{BASE_URL}/schedule', json=schedule_data)
+
+        if response.status_code != 200:
+            print(f"❌ Schedule creation failed: {response.status_code}")
+            print(f"Response: {response.text}")
+            return False
+
+        print("✅ Scheduled backup created successfully")
+
+        # Step 3: Verify cron job was created
+        print("\n🔍 Verifying cron job creation...")
+        import subprocess
+        try:
+            result = subprocess.run(['crontab', '-l'], capture_output=True, text=True, user='nonbios')
+            cron_output = result.stdout
+
+            if 'scheduled-test-backup' not in cron_output:
+                print("❌ Cron job not found in crontab")
+                print(f"Cron output: {cron_output}")
+                return False
+
+            if '/backup' not in cron_output:
+                print("❌ Backup API call not found in cron job")
+                return False
+
+            if 'test_schedule_key' not in cron_output:
+                print("❌ Password key not found in cron job")
+                return False
+
+            print("✅ Cron job created correctly")
+            cron_lines = cron_output.split('\n')
+            matching_line = [line for line in cron_lines if 'scheduled-test-backup' in line][0]
+            print(f"Cron entry: {matching_line}")
+
+        except Exception as e:
+            print(f"❌ Failed to check cron job: {e}")
+            return False
+
+        # Step 4: Verify password was stored in password store
+        print("\n🔑 Verifying password store...")
+        password_store_file = os.path.expanduser('~/.restic-api/password-store')
+        if not os.path.exists(password_store_file):
+            print("❌ Password store file not created")
+            return False
+
+        with open(password_store_file, 'r') as f:
+            password_store_content = f.read()
+
+        if 'test_schedule_key=test123' not in password_store_content:
+            print("❌ Password not found in password store")
+            print(f"Password store content: {password_store_content}")
+            return False
+
+        print("✅ Password stored correctly in password store")
+
+        # Step 5: Test manual backup execution using the key
+        print("\n💾 Testing backup execution with key...")
+        response = requests.post(f'{BASE_URL}/backup', json={
+            'repo_path': repo_dir,
+            'key': 'test_schedule_key',  # Using key instead of password
+            'type': 'command',
+            'command': 'cat /etc/hostname',
+            'filename': 'manual_test_hostname.txt',
+            'backup_name': 'manual-key-test-backup'
+        })
+
+        if response.status_code != 200:
+            print(f"❌ Manual backup with key failed: {response.status_code}")
+            print(f"Response: {response.text}")
+            return False
+
+        print("✅ Manual backup with key completed successfully")
+
+        # Step 6: Verify backup was created
+        print("\n📋 Verifying backup was created...")
+        response = requests.post(f'{BASE_URL}/snapshots', json={
+            'repo_path': repo_dir,
+            'key': 'test_schedule_key'
+        })
+
+        if response.status_code != 200:
+            print(f"❌ Failed to list snapshots: {response.status_code}")
+            return False
+
+        snapshots = response.json()
+        if not snapshots:
+            print("❌ No snapshots found")
+            return False
+
+        print(f"✅ Found {len(snapshots)} snapshot(s)")
+
+        # Find our backup
+        manual_backup_found = False
+        for snapshot in snapshots:
+            if 'manual-key-test-backup' in str(snapshot):
+                manual_backup_found = True
+                break
+
+        if not manual_backup_found:
+            print("❌ Manual backup snapshot not found")
+            return False
+
+        print("✅ Manual backup snapshot found")
+
+        # Step 7: Clean up - remove cron job
+        print("\n🧹 Cleaning up cron job...")
+        try:
+            # Get current crontab
+            result = subprocess.run(['crontab', '-l'], capture_output=True, text=True, user='nonbios')
+            current_cron = result.stdout
+
+            # Remove our test job
+            cleaned_cron = '\\n'.join([line for line in current_cron.split('\\n')
+                                     if 'scheduled-test-backup' not in line])
+
+            # Write back cleaned crontab
+            process = subprocess.Popen(['crontab', '-'], stdin=subprocess.PIPE, text=True)
+            process.communicate(input=cleaned_cron)
+
+            print("✅ Cron job cleaned up")
+
+        except Exception as e:
+            print(f"⚠️ Warning: Failed to clean up cron job: {e}")
+
+        print("✅ Schedule functionality test passed!")
+        return True
+
+    except Exception as e:
+        print(f"❌ Schedule test failed with exception: {e}")
+        return False
+
 def main():
     """Main end-to-end test function"""
     print("🧪 Starting End-to-End Restic API Test")
