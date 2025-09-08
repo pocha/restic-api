@@ -19,6 +19,24 @@ function formatBytes(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
 }
 
+// Toggle backup input fields based on backup type
+function toggleBackupInputs() {
+  const backupType = document.getElementById('backupType').value
+  const directoryFields = document.getElementById('directoryFields')
+  const commandFields = document.getElementById('commandFields')
+  
+  if (backupType === 'directory') {
+    directoryFields.classList.remove('hidden')
+    commandFields.classList.add('hidden')
+  } else if (backupType === 'command') {
+    directoryFields.classList.add('hidden')
+    commandFields.classList.remove('hidden')
+  } else {
+    directoryFields.classList.add('hidden')
+    commandFields.classList.add('hidden')
+  }
+}
+
 // API calls
 async function fetchConfig() {
   try {
