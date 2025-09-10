@@ -6,7 +6,7 @@ import platform
 import zipfile
 import tarfile
 import shutil
-from flask import jsonify
+from flask import jsonify, request
 from main import app
 
 def get_latest_restic_version():
