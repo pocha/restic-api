@@ -301,6 +301,34 @@ async function deleteScheduledBackup(locationId, scheduleId, button) {
   hideLoadingOnButton(button)
 }
 
+async function backupNowForSchedule(locationId, schedule, button) {
+  const password = prompt('Enter backup location password');
+  if (!password) {
+    alert('Please enter the password in the form first');
+    return;
+  }
+  
+  showLoadingOnButton(button);
+  try {
+    if (schedule.type === 'command') {
+      await startBackup(locationId, { 
+        type: 'command', 
+        command: schedule.command, 
+        filename: schedule.filename 
+      }, password);
+    } else {
+      await startBackup(locationId, { 
+        type: 'directory', 
+        path: schedule.path 
+      }, password);
+    }
+  } catch (error) {
+    console.error('Backup failed:', error);
+    showDataInModal('Backup Error', error.message, false);
+  }
+  hideLoadingOnButton(button);
+}
+
 // UI functions
 async function loadLocations() {
   showLoading("locationsList")
