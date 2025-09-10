@@ -186,7 +186,7 @@ async function scheduleBackup(locationId, backupData, password, frequency, time)
     requestBody.filename = backupData.filename
   }
 
-  const response = await fetch(`/locations/${locationId}/backups/schedule`, {
+  const response = await fetch(`/locations/${locationId}/schedule`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -224,7 +224,7 @@ async function scheduleBackup(locationId, backupData, password, frequency, time)
 
 async function loadScheduledBackups(locationId) {
   try {
-    const response = await fetch(`/locations/${locationId}/backups/schedule`)
+    const response = await fetch(`/locations/${locationId}/schedule`)
     if (!response.ok) {
       console.error("Failed to load scheduled backups")
       return
@@ -282,7 +282,7 @@ async function deleteScheduledBackup(locationId, scheduleId, button) {
 
   showLoadingOnButton(button)
   try {
-    const response = await fetch(`/locations/${locationId}/backups/schedule/${scheduleId}`, {
+    const response = await fetch(`/locations/${locationId}/schedule/${scheduleId}`, {
       method: "DELETE",
     })
 
@@ -332,7 +332,7 @@ async function backupNowForSchedule(locationId, schedule, button) {
 async function executeScheduledBackup(locationId, scheduleId, button) {
   showLoadingOnButton(button);
   try {
-    const response = await fetch(`/locations/${locationId}/execute-cron/${scheduleId}`, {
+    const response = await fetch(`/locations/${locationId}/schedule/${scheduleId}/execute-backup`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
