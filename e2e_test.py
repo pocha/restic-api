@@ -93,6 +93,9 @@ def stream_output(response):
                     print(f"   ❌ {data.get('data', '').strip()}")
                 elif data.get('type') == 'complete':
                     print(f"   ✅ Command completed with exit code: {data.get('exit_code', 'unknown')}")
+                    # Check if backup failed based on success flag
+                    if not data.get('success', True):
+                        raise Exception(f"Backup failed: success=false, snapshot_id={data.get('snapshot_id')}")
                     return data.get('exit_code', 0)
             except json.JSONDecodeError:
                 print(f"   📝 {line.decode('utf-8').strip()}")

@@ -406,7 +406,9 @@ def create_backup(location_id):
             if command_backup_path not in config['locations'][location_id]['paths']:
                 config['locations'][location_id]['paths'].append(command_backup_path)
                 save_config(config)
-            cmd = ['restic', 'backup', '--stdin', '--stdin-from-command', backup_command, 
+            # Split the command into arguments for proper execution
+            command_args = backup_command.split()
+            cmd = ['restic', 'backup', '--stdin', '--stdin-from-command'] + command_args + [
                    '--stdin-filename', filename, '--repo', repo_path, '--verbose']
         else:
             return jsonify({'error': 'type must be either "directory" or "command"'}), 400
