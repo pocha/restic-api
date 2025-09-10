@@ -630,6 +630,7 @@ def move_dir(backup_dir):
 
     
 def test_backup(type="directory"):
+    print(f"\n========\nTesting {type} based backup\n=========\n")
     try: 
         print("\n📁 Creating temporary directories in /tmp...")
         import tempfile
