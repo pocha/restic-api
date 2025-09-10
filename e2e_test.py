@@ -38,7 +38,7 @@ def start_server():
         except:
             time.sleep(1)
     
-    print("❌ Failed to start server")
+    raise TypeError("❌ Failed to start server")
     return False
 
 def stop_server():
@@ -78,7 +78,7 @@ def api_call(method, endpoint, data=None, stream=False):
             return response.text
             
     except requests.exceptions.RequestException as e:
-        print(f"❌ API call failed: {e}")
+        raise TypeError(f"❌ API call failed: {e}")
         return None
 
 def stream_output(response):
@@ -153,7 +153,7 @@ def compare_directories(dir1, dir2):
     
     # Compare structures
     if set(struct1.keys()) != set(struct2.keys()):
-        print("❌ Directory structures don't match!")
+        raise TypeError("❌ Directory structures don't match!")
         print(f"   Original files: {sorted(struct1.keys())}")
         print(f"   Restored files: {sorted(struct2.keys())}")
         return False
@@ -161,7 +161,7 @@ def compare_directories(dir1, dir2):
     # Compare file contents
     for file_path in struct1:
         if struct1[file_path] != struct2[file_path]:
-            print(f"❌ File content mismatch: {file_path}")
+            raise TypeError(f"❌ File content mismatch: {file_path}")
             return False
     
     print("✅ Directories match perfectly!")
@@ -201,7 +201,7 @@ def test_restic_installation():
         print("🔍 Testing API returns 'NA' when restic is not installed...")
         result = api_call('POST', '/config/update_restic', {})
         if not result or result.get('restic_version') != 'NA':
-            print(f"❌ Expected 'NA' but got: {result.get('restic_version') if result else 'No result'}")
+            raise TypeError(f"❌ Expected 'NA' but got: {result.get('restic_version') if result else 'No result'}")
             return False
         print("✅ API correctly returns 'NA' when restic is not installed")
         
@@ -212,7 +212,7 @@ def test_restic_installation():
             extracted_path = download_restic_windows()
         
         if not extracted_path:
-            print("❌ Failed to download and extract restic binary")
+            raise TypeError("❌ Failed to download and extract restic binary")
             return False
         
         # Step 4: Test installation via API
@@ -225,7 +225,7 @@ def test_restic_installation():
             response = requests.post(f'{BASE_URL}/config/update_restic', files=files, data=data)
             
             if response.status_code != 200:
-                print(f"❌ Installation API call failed: {response.status_code}")
+                raise TypeError(f"❌ Installation API call failed: {response.status_code}")
                 print(f"   Response: {response.text}")
                 return False
             
@@ -236,14 +236,14 @@ def test_restic_installation():
         print("✅ Verifying installation...")
         result = api_call('POST', '/config/update_restic', {})
         if not result or result.get('restic_version') == 'NA':
-            print(f"❌ Installation verification failed. Version: {result.get('restic_version') if result else 'No result'}")
+            raise TypeError(f"❌ Installation verification failed. Version: {result.get('restic_version') if result else 'No result'}")
             return False
         
         print(f"✅ Restic successfully installed! Version: {result.get('restic_version')}")
         return True
         
     except Exception as e:
-        print(f"❌ Restic installation test failed: {str(e)}")
+        raise TypeError(f"❌ Restic installation test failed: {str(e)}")
         return False
     
     finally:
@@ -298,7 +298,7 @@ def test_schedule_functionality():
         })
 
         if response.status_code != 200:
-            print(f"❌ Repository initialization failed: {response.status_code}")
+            raise TypeError(f"❌ Repository initialization failed: {response.status_code}")
             return False
 
         print("✅ Repository initialized successfully")
@@ -318,7 +318,7 @@ def test_schedule_functionality():
         response = requests.post(f'{BASE_URL}/schedule', json=schedule_data)
 
         if response.status_code != 200:
-            print(f"❌ Schedule creation failed: {response.status_code}")
+            raise TypeError(f"❌ Schedule creation failed: {response.status_code}")
             print(f"Response: {response.text}")
             return False
 
@@ -332,7 +332,7 @@ def test_schedule_functionality():
             cron_output = result.stdout
 
             if 'scheduled-test-backup' not in cron_output:
-                print("❌ Cron job not found in crontab")
+                raise TypeError("❌ Cron job not found in crontab")
                 print(f"Cron output: {cron_output}")
                 return False
 
@@ -341,7 +341,7 @@ def test_schedule_functionality():
                 return False
 
             if 'test_schedule_key' not in cron_output:
-                print("❌ Password key not found in cron job")
+                raise TypeError("❌ Password key not found in cron job")
                 return False
 
             print("✅ Cron job created correctly")
@@ -350,21 +350,21 @@ def test_schedule_functionality():
             print(f"Cron entry: {matching_line}")
 
         except Exception as e:
-            print(f"❌ Failed to check cron job: {e}")
+            raise TypeError(f"❌ Failed to check cron job: {e}")
             return False
 
         # Step 4: Verify password was stored in password store
         print("\n🔑 Verifying password store...")
         password_store_file = os.path.expanduser('~/.restic-api/password-store')
         if not os.path.exists(password_store_file):
-            print("❌ Password store file not created")
+            raise TypeError("❌ Password store file not created")
             return False
 
         with open(password_store_file, 'r') as f:
             password_store_content = f.read()
 
         if 'test_schedule_key=test123' not in password_store_content:
-            print("❌ Password not found in password store")
+            raise TypeError("❌ Password not found in password store")
             print(f"Password store content: {password_store_content}")
             return False
 
@@ -382,7 +382,7 @@ def test_schedule_functionality():
         })
 
         if response.status_code != 200:
-            print(f"❌ Manual backup with key failed: {response.status_code}")
+            raise TypeError(f"❌ Manual backup with key failed: {response.status_code}")
             print(f"Response: {response.text}")
             return False
 
@@ -396,12 +396,12 @@ def test_schedule_functionality():
         })
 
         if response.status_code != 200:
-            print(f"❌ Failed to list snapshots: {response.status_code}")
+            raise TypeError(f"❌ Failed to list snapshots: {response.status_code}")
             return False
 
         snapshots = response.json()
         if not snapshots:
-            print("❌ No snapshots found")
+            raise TypeError("❌ No snapshots found")
             return False
 
         print(f"✅ Found {len(snapshots)} snapshot(s)")
@@ -414,7 +414,7 @@ def test_schedule_functionality():
                 break
 
         if not manual_backup_found:
-            print("❌ Manual backup snapshot not found")
+            raise TypeError("❌ Manual backup snapshot not found")
             return False
 
         print("✅ Manual backup snapshot found")
@@ -443,7 +443,7 @@ def test_schedule_functionality():
         return True
 
     except Exception as e:
-        print(f"❌ Schedule test failed with exception: {e}")
+        raise TypeError(f"❌ Schedule test failed with exception: {e}")
         return False
     
 def create_backup_location(repo_dir):
@@ -455,14 +455,14 @@ def create_backup_location(repo_dir):
     }
     response = requests.post(f'{BASE_URL}/locations', json=init_data)
     if response.status_code != 200:
-        print(f"❌ Failed to initialize repository: {response.status_code}")
+        raise TypeError(f"❌ Failed to initialize repository: {response.status_code}")
         print(f"   Response: {response.text}")
         return False
     
     result = response.json()
     location_id = result.get('location_id')
     if not location_id:
-        print("❌ No location_id returned from initialization")
+        raise TypeError("❌ No location_id returned from initialization")
         return False
     
     print(f"✅ Repository initialized with location_id: {location_id}")
@@ -503,12 +503,12 @@ def take_backup(location_id, backup_data):
     headers = {'X-Restic-Password': 'test_password_123'}
     response = requests.post(f'{BASE_URL}/locations/{location_id}/backups', json=backup_data, headers=headers, stream=True)
     if response.status_code != 200:
-        print(f"❌ Failed to start backup: {response.status_code}")
+        raise TypeError(f"❌ Failed to start backup: {response.status_code}")
         return False
     
     exit_code = stream_output(response)
     if exit_code != 0:
-        print("❌ Backup failed")
+        raise TypeError("❌ Backup failed")
         return False
     
 def config_updated_with_recent_backup(location_id, backup_dir):
@@ -516,22 +516,18 @@ def config_updated_with_recent_backup(location_id, backup_dir):
     print("\n🔍 Verifying config was updated with backup path...")
     response = requests.get(f'{BASE_URL}/config')
     if response.status_code != 200:
-        print(f"❌ Failed to get config: {response.status_code}")
-        return False
+        raise TypeError(f"❌ Failed to get config: {response.status_code}")
     
     config = response.json()
     if location_id not in config.get('locations', {}):
-        print(f"❌ Location {location_id} not found in config")
-        return False
+        raise TypeError(f"❌ Location {location_id} not found in config")
     
     location_config = config['locations'][location_id]
     if 'paths' not in location_config:
-        print(f"❌ Paths field not found in location config")
-        return False
+        raise TypeError(f"❌ Paths field not found in location config")
     
     if backup_dir not in location_config['paths']:
-        print(f"❌ Backup path {backup_dir} not found in config paths: {location_config['paths']}")
-        return False
+        raise TypeError(f"❌ Backup path {backup_dir} not found in config paths: {location_config['paths']}")
     
     print(f"✅ Config updated successfully - backup path {backup_dir} found in paths")
 
@@ -541,17 +537,16 @@ def check_snapshots_and_get_latest(location_id):
     headers = {'X-Restic-Password': 'test_password_123'}
     response = requests.get(f'{BASE_URL}/locations/{location_id}/backups', headers=headers)
     if response.status_code != 200:
-        print(f"❌ Failed to list snapshots: {response.status_code}")
-        return False
+        raise TypeError(f"❌ Failed to list snapshots: {response.status_code}")
     
     snapshots = response.json()
     if not snapshots or not isinstance(snapshots, list):
-        print("❌ Failed to list snapshots")
+        raise TypeError("❌ Failed to list snapshots")
         return False
     
     snapshot_list = snapshots
     if not snapshot_list:
-        print("❌ No snapshots found")
+        raise TypeError("❌ No snapshots found")
         return False
     
     latest_snapshot = snapshot_list[0]  # Most recent snapshot
@@ -590,12 +585,12 @@ def restore_backup(location_id, snapshot_id, restore_dir, backup_dir=None, backu
     headers = {'X-Restic-Password': 'test_password_123'}
     response = requests.post(f'{BASE_URL}/locations/{location_id}/backups/{snapshot_id}/restore', json=restore_data, headers=headers, stream=True)
     if response.status_code != 200:
-        print(f"❌ Failed to start restore: {response.status_code}")
+        raise TypeError(f"❌ Failed to start restore: {response.status_code}")
         return False
     
     exit_code = stream_output(response)
     if exit_code != 0:
-        print("❌ Restore failed")
+        raise TypeError("❌ Restore failed")
         return False
     
     if not backup_dir:
@@ -674,14 +669,14 @@ def test_backup(type="directory"):
 
 
     except Exception as e:
-        print(f"❌ Test failed with exception: {e}")
-        return False
+        raise TypeError(f"❌ Test failed with exception: {e}")
 
     finally:
         #Cleanup
         print("\n🧹 Cleaning up...")
         shutil.rmtree(repo_dir, ignore_errors=True)
-        shutil.rmtree(backup_dir_renamed, ignore_errors=True)
+        if 'backup_dir_renamed' in locals():
+            shutil.rmtree(backup_dir_renamed, ignore_errors=True)
         shutil.rmtree(restore_dir, ignore_errors=True)
        
 
@@ -710,7 +705,7 @@ def main():
         # Use the new /config/update_restic API to set restic version
         result = api_call('POST', '/config/update_restic', {})
         if not result or 'restic_version' not in str(result):
-            print("❌ Failed to update restic configuration")
+            raise TypeError("❌ Failed to update restic configuration")
             return False
         print(f"✅ Restic version updated: {result.get('restic_version', 'Unknown')}")
         
@@ -723,7 +718,7 @@ def main():
             print("✅ All operations completed successfully")
             print("✅ Data integrity verified")
         else:
-            print("❌ END-TO-END TEST FAILED!")
+            raise TypeError("❌ END-TO-END TEST FAILED!")
             
     except Exception as e:
         print(f"❌ Test failed with exception: {e}")
