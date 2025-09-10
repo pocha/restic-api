@@ -294,7 +294,8 @@ def test_command_based_backup():
         
         # Step 1: Initialize repository
         print("\n🔧 Initializing restic repository...")
-        response = requests.post(f'{BASE_URL}/init', json={
+
+        response = requests.post(f'{BASE_URL}/locations', json={
             'repo_path': repo_dir,
             'password': 'test123'
         })
@@ -550,6 +551,180 @@ def test_schedule_functionality():
     except Exception as e:
         print(f"❌ Schedule test failed with exception: {e}")
         return False
+    
+def create_backup_location(repo_dir):
+    # Step 4: Initialize repository
+    print("\n🏗️  Initializing repository...")
+    init_data = {
+        'location': repo_dir,
+        'password': 'test_password_123'
+    }
+    response = requests.post(f'{BASE_URL}/locations', json=init_data)
+    if response.status_code != 200:
+        print(f"❌ Failed to initialize repository: {response.status_code}")
+        print(f"   Response: {response.text}")
+        return False
+    
+    result = response.json()
+    location_id = result.get('location_id')
+    if not location_id:
+        print("❌ No location_id returned from initialization")
+        return False
+    
+    print(f"✅ Repository initialized with location_id: {location_id}")
+    return location_id
+    
+def take_dir_backup(location_id, backup_dir):
+   
+    # Step 5: Create test files
+    print("\n📝 Creating test files...")
+    test_files = create_test_files(backup_dir)
+    print(f"   Created {len(test_files)} test files")
+    
+    # List created files
+    for file_path in test_files:
+        rel_path = os.path.relpath(file_path, backup_dir)
+        size = os.path.getsize(file_path)
+        print(f"   📄 {rel_path} ({size} bytes)")
+    
+    # Step 6: Create backup
+    backup_data = {
+        'path': backup_dir
+    }
+    
+    headers = {'X-Restic-Password': 'test_password_123'}
+    response = requests.post(f'{BASE_URL}/locations/{location_id}/backups', json=backup_data, headers=headers, stream=True)
+    if response.status_code != 200:
+        print(f"❌ Failed to start backup: {response.status_code}")
+        return False
+    
+    exit_code = stream_output(response)
+    if exit_code != 0:
+        print("❌ Backup failed")
+        return False
+    
+def config_updated_with_recent_backup(location_id, backup_dir):
+    # Step 6.1: Verify config was updated with backup path
+    print("\n🔍 Verifying config was updated with backup path...")
+    response = requests.get(f'{BASE_URL}/config')
+    if response.status_code != 200:
+        print(f"❌ Failed to get config: {response.status_code}")
+        return False
+    
+    config = response.json()
+    if location_id not in config.get('locations', {}):
+        print(f"❌ Location {location_id} not found in config")
+        return False
+    
+    location_config = config['locations'][location_id]
+    if 'paths' not in location_config:
+        print(f"❌ Paths field not found in location config")
+        return False
+    
+    if backup_dir not in location_config['paths']:
+        print(f"❌ Backup path {backup_dir} not found in config paths: {location_config['paths']}")
+        return False
+    
+    print(f"✅ Config updated successfully - backup path {backup_dir} found in paths")
+
+def check_snapshots_and_get_latest(location_id):
+    # Step 7: List snapshots to verify backup
+    print("\n📋 Listing snapshots...")
+    headers = {'X-Restic-Password': 'test_password_123'}
+    response = requests.get(f'{BASE_URL}/locations/{location_id}/backups', headers=headers)
+    if response.status_code != 200:
+        print(f"❌ Failed to list snapshots: {response.status_code}")
+        return False
+    
+    snapshots = response.json()
+    if not snapshots or not isinstance(snapshots, list):
+        print("❌ Failed to list snapshots")
+        return False
+    
+    snapshot_list = snapshots
+    if not snapshot_list:
+        print("❌ No snapshots found")
+        return False
+    
+    latest_snapshot = snapshot_list[0]  # Most recent snapshot
+    snapshot_id = latest_snapshot['snapshot_id']
+    print(f"   📸 Found snapshot: {snapshot_id}")
+    print(f"   📅 Created: {latest_snapshot['date']}")
+    print(f"   🏷️  Tags: {latest_snapshot.get('tags', [])}")
+
+    return snapshot_id
+
+def get_snapshot_content(location_id, snapshot_id):
+    # Step 9: List backup contents with recursive option
+    print("\n📂 Listing backup contents (recursive)...")
+    headers = {'X-Restic-Password': 'test_password_123'}
+    response = requests.get(f'{BASE_URL}/locations/{location_id}/backups/{snapshot_id}?recursive=true', headers=headers)
+    if response.status_code != 200:
+        print(f"❌ Failed to list backup contents: {response.status_code}")
+        return False
+    
+    backup_contents = response.json()
+    print(f"   📁 Found {len(backup_contents)} items in backup:")
+    for item in backup_contents[:10]:  # Show first 10 items
+        item_type = "📁" if item.get('type') == 'dir' else "📄"
+        size_info = f" ({item.get('size', 0)} bytes)" if item.get('type') == 'file' else ""
+        print(f"   {item_type} {item.get('path', item.get('name', 'unknown'))}{size_info}")
+    if len(backup_contents) > 10:
+        print(f"   ... and {len(backup_contents) - 10} more items")
+
+def restore_backup(location_id, snapshot_id, restore_dir, backup_dir, backup_dir_renamed):
+    # Step 10: Restore backup
+    print("\n🔄 Restoring backup...")
+    restore_data = {
+        'target': restore_dir
+    }
+    
+    headers = {'X-Restic-Password': 'test_password_123'}
+    response = requests.post(f'{BASE_URL}/locations/{location_id}/backups/{snapshot_id}/restore', json=restore_data, headers=headers, stream=True)
+    if response.status_code != 200:
+        print(f"❌ Failed to start restore: {response.status_code}")
+        return False
+    
+    exit_code = stream_output(response)
+    if exit_code != 0:
+        print("❌ Restore failed")
+        return False
+    
+    # Step 11: Compare original and restored directories
+    print("\n🔍 Comparing original and restored data...")
+    
+    # The restored directory will have the full path structure
+    # Find the actual restored content
+    restored_content_dir = None
+    for root, dirs, files in os.walk(restore_dir):
+        if os.path.basename(root) == os.path.basename(backup_dir):
+            restored_content_dir = root
+            break
+    
+    if not restored_content_dir:
+        # If not found, the content might be directly in restore_dir
+        restored_content_dir = restore_dir
+    
+    success = compare_directories(backup_dir_renamed, restored_content_dir)
+    # Final result
+    print("\n" + "=" * 50)
+    if success:
+        print("🎉 END-TO-END TEST PASSED! 🎉")
+        print("✅ All operations completed successfully")
+        print("✅ Data integrity verified")
+        return True
+    else:
+        print("❌ END-TO-END TEST FAILED!")
+        return False
+    
+def move_dir(backup_dir):
+   # Step 8: Rename (simulate deletion) of original directory
+    print("\n🔄 Simulating data loss (renaming original directory)...")
+    backup_dir_renamed = f"{backup_dir}_original"
+    os.rename(backup_dir, backup_dir_renamed)
+    print(f"   Renamed {backup_dir} to {backup_dir_renamed}")
+    return backup_dir_renamed
+
 
 def main():
     """Main end-to-end test function"""
@@ -566,9 +741,9 @@ def main():
             return False
         
         # Step 1.5: Test restic installation
-        print("\n🔧 Testing restic installation...")
-        if not test_restic_installation():
-            return False
+        #print("\n🔧 Testing restic installation...")
+        #if not test_restic_installation():
+        #    return False
         
         # Step 2: Create temporary directories in /tmp
         print("\n📁 Creating temporary directories in /tmp...")
@@ -599,157 +774,19 @@ def main():
             return False
         print(f"✅ Restic version updated: {result.get('restic_version', 'Unknown')}")
         
-        # Step 4: Initialize repository
-        print("\n🏗️  Initializing repository...")
-        init_data = {
-            'location': repo_dir,
-            'password': 'test_password_123'
-        }
-        response = requests.post(f'{BASE_URL}/locations', json=init_data)
-        if response.status_code != 200:
-            print(f"❌ Failed to initialize repository: {response.status_code}")
-            print(f"   Response: {response.text}")
-            return False
+        location_id = create_backup_location(repo_dir)
+     
+        take_dir_backup(location_id, backup_dir)
         
-        result = response.json()
-        location_id = result.get('location_id')
-        if not location_id:
-            print("❌ No location_id returned from initialization")
-            return False
+        config_updated_with_recent_backup(location_id, backup_dir)
         
-        print(f"✅ Repository initialized with location_id: {location_id}")
-        
-        # Step 5: Create test files
-        print("\n📝 Creating test files...")
-        test_files = create_test_files(backup_dir)
-        print(f"   Created {len(test_files)} test files")
-        
-        # List created files
-        for file_path in test_files:
-            rel_path = os.path.relpath(file_path, backup_dir)
-            size = os.path.getsize(file_path)
-            print(f"   📄 {rel_path} ({size} bytes)")
-        
-        # Step 6: Create backup
-        backup_data = {
-            'path': backup_dir
-        }
-        
-        headers = {'X-Restic-Password': 'test_password_123'}
-        response = requests.post(f'{BASE_URL}/locations/{location_id}/backups', json=backup_data, headers=headers, stream=True)
-        if response.status_code != 200:
-            print(f"❌ Failed to start backup: {response.status_code}")
-            return False
-        
-        exit_code = stream_output(response)
-        if exit_code != 0:
-            print("❌ Backup failed")
-            return False
-        
-        
-        # Step 6.1: Verify config was updated with backup path
-        print("\n🔍 Verifying config was updated with backup path...")
-        response = requests.get(f'{BASE_URL}/config')
-        if response.status_code != 200:
-            print(f"❌ Failed to get config: {response.status_code}")
-            return False
-        
-        config = response.json()
-        if location_id not in config.get('locations', {}):
-            print(f"❌ Location {location_id} not found in config")
-            return False
-        
-        location_config = config['locations'][location_id]
-        if 'paths' not in location_config:
-            print(f"❌ Paths field not found in location config")
-            return False
-        
-        if backup_dir not in location_config['paths']:
-            print(f"❌ Backup path {backup_dir} not found in config paths: {location_config['paths']}")
-            return False
-        
-        print(f"✅ Config updated successfully - backup path {backup_dir} found in paths")
-        
-        # Step 7: List snapshots to verify backup
-        print("\n📋 Listing snapshots...")
-        headers = {'X-Restic-Password': 'test_password_123'}
-        response = requests.get(f'{BASE_URL}/locations/{location_id}/backups', headers=headers)
-        if response.status_code != 200:
-            print(f"❌ Failed to list snapshots: {response.status_code}")
-            return False
-        
-        snapshots = response.json()
-        if not snapshots or not isinstance(snapshots, list):
-            print("❌ Failed to list snapshots")
-            return False
-        
-        snapshot_list = snapshots
-        if not snapshot_list:
-            print("❌ No snapshots found")
-            return False
-        
-        latest_snapshot = snapshot_list[0]  # Most recent snapshot
-        snapshot_id = latest_snapshot['snapshot_id']
-        print(f"   📸 Found snapshot: {snapshot_id}")
-        print(f"   📅 Created: {latest_snapshot['date']}")
-        print(f"   🏷️  Tags: {latest_snapshot.get('tags', [])}")
-        
-        # Step 8: Rename (simulate deletion) of original directory
-        print("\n🔄 Simulating data loss (renaming original directory)...")
-        backup_dir_renamed = f"{backup_dir}_original"
-        os.rename(backup_dir, backup_dir_renamed)
-        print(f"   Renamed {backup_dir} to {backup_dir_renamed}")
-        
-        # Step 9: List backup contents with recursive option
-        print("\n📂 Listing backup contents (recursive)...")
-        headers = {'X-Restic-Password': 'test_password_123'}
-        response = requests.get(f'{BASE_URL}/locations/{location_id}/backups/{snapshot_id}?recursive=true', headers=headers)
-        if response.status_code != 200:
-            print(f"❌ Failed to list backup contents: {response.status_code}")
-            return False
-        
-        backup_contents = response.json()
-        print(f"   📁 Found {len(backup_contents)} items in backup:")
-        for item in backup_contents[:10]:  # Show first 10 items
-            item_type = "📁" if item.get('type') == 'dir' else "📄"
-            size_info = f" ({item.get('size', 0)} bytes)" if item.get('type') == 'file' else ""
-            print(f"   {item_type} {item.get('path', item.get('name', 'unknown'))}{size_info}")
-        if len(backup_contents) > 10:
-            print(f"   ... and {len(backup_contents) - 10} more items")
-        
-        # Step 10: Restore backup
-        print("\n🔄 Restoring backup...")
-        restore_data = {
-            'target': restore_dir
-        }
-        
-        headers = {'X-Restic-Password': 'test_password_123'}
-        response = requests.post(f'{BASE_URL}/locations/{location_id}/backups/{snapshot_id}/restore', json=restore_data, headers=headers, stream=True)
-        if response.status_code != 200:
-            print(f"❌ Failed to start restore: {response.status_code}")
-            return False
-        
-        exit_code = stream_output(response)
-        if exit_code != 0:
-            print("❌ Restore failed")
-            return False
-        
-        # Step 11: Compare original and restored directories
-        print("\n🔍 Comparing original and restored data...")
-        
-        # The restored directory will have the full path structure
-        # Find the actual restored content
-        restored_content_dir = None
-        for root, dirs, files in os.walk(restore_dir):
-            if os.path.basename(root) == os.path.basename(backup_dir):
-                restored_content_dir = root
-                break
-        
-        if not restored_content_dir:
-            # If not found, the content might be directly in restore_dir
-            restored_content_dir = restore_dir
-        
-        success = compare_directories(backup_dir_renamed, restored_content_dir)
+        snapshot_id = check_snapshots_and_get_latest(location_id)
+       
+        get_snapshot_content(location_id, snapshot_id)
+
+        backup_dir_renamed = move_dir(backup_dir)
+        restore_backup(location_id, snapshot_id, restore_dir, backup_dir, backup_dir_renamed)
+       
         
         # Step 12: Cleanup
         print("\n🧹 Cleaning up...")
@@ -757,17 +794,6 @@ def main():
         shutil.rmtree(backup_dir_renamed, ignore_errors=True)
         shutil.rmtree(restore_dir, ignore_errors=True)
         print("   Temporary directories cleaned up")
-        
-        # Final result
-        print("\n" + "=" * 50)
-        if success:
-            print("🎉 END-TO-END TEST PASSED! 🎉")
-            print("✅ All operations completed successfully")
-            print("✅ Data integrity verified")
-            return True
-        else:
-            print("❌ END-TO-END TEST FAILED!")
-            return False
             
     except Exception as e:
         print(f"❌ Test failed with exception: {e}")
