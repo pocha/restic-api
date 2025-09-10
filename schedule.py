@@ -208,54 +208,40 @@ def create_backup_schedule(location_id):
 def execute_cron_job(cron_id):
     """Execute a scheduled cron job by its ID"""
     try:
-        # Find the cron job by comment
-        result = subprocess.run(['crontab', '-l'], capture_output=True, text=True)
-        if result.returncode != 0:
-            return jsonify({'error': 'No cron jobs found'}), 404
+        from crontab import CronTab
+        cron = CronTab(user=True)
+         
+        target_command = None
+        jobs = cron.find_comment(f"restic_schedule_{cron_id}")
+        for job in jobs:
+            target_command = job.command
+            break
         
-        cron_lines = result.stdout.strip().split('\n')
-        target_line = None
-        
-        for line in cron_lines:
-            if f'restic-api-{cron_id}' in line:
-                target_line = line
-                break
-        
-        if not target_line:
-            return jsonify({'error': 'Cron job not found'}), 404
-        
-        # Extract the curl command from the cron line
-        # Format: "minute hour * * * curl ... # restic-api-{cron_id}"
-        parts = target_line.split(' ', 5)
-        if len(parts) < 6:
-            return jsonify({'error': 'Invalid cron job format'}), 400
-        
-        curl_command = parts[5].split(' # ')[0]  # Remove the comment part
-        
-        # Extract JSON data from curl command
+        if not target_command:
+            return jsonify({'error': 'No backup job scheduled for the cron_id'}), 400
+
+        # Parse the curl command to extract parameters
         import re
-        json_match = re.search(r"-d '({.*?})'", curl_command)
-        if not json_match:
-            return jsonify({'error': 'Could not extract backup data from cron job'}), 400
+        import json
+        # Extract JSON data from curl command
+        data_match = re.search(r"-d\s+'([^']+)' ([^']+)", target_command)
+        if not data_match:
+            return jsonify({'error': 'Could not extract backup data from cron command'}), 400
         
-        json_data = json_match.group(1)
-        backup_data = json.loads(json_data)
         
-        # Extract URL from curl command
-        url_match = re.search(r'http://localhost:5000(/locations/[^/]+/backups)', curl_command)
-        if not url_match:
-            return jsonify({'error': 'Could not extract URL from cron job'}), 400
+        backup_data = json.loads(data_match.group(1))
+        if not backup_data:
+            return jsonify({'error': 'Invalid JSON in cron command'}), 400
         
-        url = url_match.group(1)
+        url = data_match.group(2)
+        if not url:
+            return jsonify({'error': 'Could not extract url from cron'})
         
-        # Execute the backup by posting to the extracted URL
-        response = requests.post(f'http://localhost:5000{url}', json=backup_data)
+        import requests 
+        response = requests.post(url, backup_data)
+
+        return response.json()
         
-        if response.status_code == 200:
-            return jsonify({'message': 'Backup executed successfully'})
-        else:
-            return jsonify({'error': 'Failed to execute backup'}), response.status_code
-            
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
