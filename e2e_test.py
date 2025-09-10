@@ -471,6 +471,7 @@ def create_backup_location(repo_dir):
 def take_backup_command(location_id, command, filename):
    
     backup_data = {
+        'type' : 'command',
         'command': command,
         'filename': filename
     }
@@ -491,6 +492,7 @@ def take_backup_dir(location_id, backup_dir):
     
     # Step 6: Create backup
     backup_data = {
+        'type': 'directory',
         'path': backup_dir
     }
     
@@ -658,7 +660,7 @@ def test_backup(type="directory"):
             command = 'cat /etc/hostname'
             filename = 'hostname.txt'
             take_backup_command(location_id, command, filename)
-            config_updated_with_recent_backup(location_id, command + ":" + filename )
+            config_updated_with_recent_backup(location_id, command + ":/" + filename )
        
         snapshot_id = check_snapshots_and_get_latest(location_id)
         

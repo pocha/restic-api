@@ -402,7 +402,7 @@ def create_backup(location_id):
             
 
             # Add command backup path to location's paths list for restore functionality
-            command_backup_path = "/" + filename
+            command_backup_path = backup_command + ":/" + filename
             if command_backup_path not in config['locations'][location_id]['paths']:
                 config['locations'][location_id]['paths'].append(command_backup_path)
                 save_config(config)
