@@ -550,28 +550,26 @@ def get_cron_expression(frequency, time_str):
     except:
         raise ValueError("Invalid time format")
 
-def create_cron_job(schedule_id, location_id, backup_data, cron_expression, key=None):
+def create_cron_job(schedule_id, location_id, backup_data, cron_expression):
     """Create cron job for Linux"""
     import uuid
     try:
         from crontab import CronTab
         cron = CronTab(user=True)
         
-        # Generate unique cron ID
-        cron_id = str(uuid.uuid4())
         
         # Create command to run backup
         if backup_data.get('type') == 'command':
             # For command-based backups
-            backup_cmd = f"curl -X POST -H 'Content-Type: application/json' -d '{{\"type\": \"command\", \"command\": \"{backup_data['command']}\", \"filename\": \"{backup_data['filename']}\", \"key\": \"{key}\"}}' http://localhost:5000/locations/{location_id}/backups"
+            backup_cmd = f"curl -X POST -H 'Content-Type: application/json' -d '{{\"type\": \"command\", \"command\": \"{backup_data['command']}\", \"filename\": \"{backup_data['filename']}\", \"key\": \"{schedule_id}\"}}' http://localhost:5000/locations/{location_id}/backups"
         else:
             # For directory-based backups
             backup_cmd = f"curl -X POST -H 'Content-Type: application/json' -d '{{\"path\": \"{backup_data['path']}\", \"key\": \"{key}\"}}' http://localhost:5000/locations/{location_id}/backups"
         
-        job = cron.new(command=backup_cmd, comment=f"restic_schedule_{schedule_id}_{cron_id}")
+        job = cron.new(command=backup_cmd, comment=f"restic_schedule_{schedule_id}")
         job.setall(cron_expression)
         cron.write()
-        return cron_id
+        return True
     except Exception as e:
         print(f"Error creating cron job: {e}")
         return False
@@ -649,7 +647,7 @@ def create_backup_schedule(location_id):
         
         if backup_type == 'directory':
             if not data or 'path' not in data or 'frequency' not in data or 'time' not in data:
-                return jsonify({'error': 'path, frequency, time are required for directory backup. key is optional for password store lookup'}), 400
+                return jsonify({'error': 'path, frequency, time are required for directory backup.'}), 400
             
             path = data['path']
             if not os.path.exists(path):
@@ -666,20 +664,21 @@ def create_backup_schedule(location_id):
         
         frequency = data['frequency']
         time_str = data['time']
-        key = data.get('key')  # Optional key for password store lookup
         
         # Validate inputs
         if frequency not in ['daily', 'weekly', 'monthly']:
             return jsonify({'error': 'frequency must be daily, weekly, or monthly'}), 400
-        # Handle password storage if key is provided
-        if key:
-            # Get password from header and store it with the key
-            password, error_response, status_code = get_password_from_header()
-            if error_response:
-                return jsonify(error_response), status_code
-            
-            # Store password in password store
-            save_password_to_store(key, password)
+        
+        # Get password from header and store it with the key
+        password, error_response, status_code = get_password_from_header()
+        if error_response:
+            return jsonify(error_response), status_code
+        
+        # Generate unique schedule ID
+        schedule_id = str(uuid.uuid4())
+
+        # Store password in password store
+        save_password_to_store(schedule_id, password)
         
         # Load config and validate location
         config = load_config()
@@ -690,8 +689,6 @@ def create_backup_schedule(location_id):
         if 'schedules' not in config:
             config['schedules'] = {}
         
-        # Generate unique schedule ID
-        schedule_id = str(uuid.uuid4())
         
         # Get cron expression
         try:
@@ -710,15 +707,14 @@ def create_backup_schedule(location_id):
             backup_data = {'type': 'command', 'command': data['command'], 'filename': data['filename']}
         
         if current_platform == 'linux':
-            cron_id = create_cron_job(schedule_id, location_id, backup_data, cron_expression, key)
-            if not cron_id:
+            success = create_cron_job(schedule_id, location_id, backup_data, cron_expression)
+            if not success:
                 return jsonify({'error': 'Failed to create scheduled job'}), 500
             
             # Store the cron_id in the schedule data
             schedule_data = {
                 'id': schedule_id,
                 'location_id': location_id,
-                'cron_id': cron_id,
                 'frequency': frequency,
                 'time': time_str,
                 'created_at': datetime.now().isoformat(),
@@ -735,7 +731,6 @@ def create_backup_schedule(location_id):
                 config['locations'][location_id]['paths'].append(snapshot_path)
         
         # Save schedule info with cron_id
-        schedule_data['key'] = key
         schedule_data['platform'] = current_platform
         config['schedules'][schedule_id] = schedule_data
         
@@ -752,78 +747,41 @@ def create_backup_schedule(location_id):
 
 
 @app.route('/locations/<location_id>/execute-cron/<cron_id>', methods=['POST'])
-def execute_cron_job(location_id, cron_id):
+def execute_cron_job(cron_id):
     """Execute a scheduled cron job by its ID"""
     try:
-        # Get current user's crontab
-        result = subprocess.run(['crontab', '-l'], capture_output=True, text=True)
-        if result.returncode != 0:
-            return jsonify({'error': 'No crontab found'}), 404
-        
-        cron_lines = result.stdout.strip().split('\n')
-        
-        # Find the cron job with the matching ID
+        from crontab import CronTab
+        cron = CronTab(user=True)
+         
         target_command = None
-        for line in cron_lines:
-            if f'# CRON_ID:{cron_id}' in line:
-                # Extract the command part (everything after the time specification)
-                parts = line.split()
-                if len(parts) >= 6:
-                    # Skip the first 5 parts (minute, hour, day, month, weekday)
-                    target_command = ' '.join(parts[5:])
-                    # Remove the comment part
-                    if '#' in target_command:
-                        target_command = target_command.split('#')[0].strip()
-                break
+        jobs = cron.find_comment(f"restic_schedule_{cron_id}")
+        for job in jobs:
+            target_command = job.command
+            break
         
         if not target_command:
-            return jsonify({'error': f'Cron job with ID {cron_id} not found'}), 404
-        
+            return jsonify({'error': 'No backup job scheduled for the cron_id'}), 400
+
         # Parse the curl command to extract parameters
         import re
         import json
-        
-        # Extract password from X-Restic-Password header
-        password_match = re.search(r'"X-Restic-Password:\s*([^"]+)"', target_command)
-        if not password_match:
-            return jsonify({'error': 'Could not extract password from cron command'}), 400
-        
-        password_key = password_match.group(1)
-        
-        # Load password from password store
-        password_store_path = os.path.expanduser('~/.restic-api/password-store')
-        if os.path.exists(password_store_path):
-            with open(password_store_path, 'r') as f:
-                password_store = {}
-                for line in f:
-                    if '=' in line:
-                        key, value = line.strip().split('=', 1)
-                        password_store[key] = value
-                
-                if password_key not in password_store:
-                    return jsonify({'error': f'Password key {password_key} not found in password store'}), 400
-                
-                password = password_store[password_key]
-        else:
-            return jsonify({'error': 'Password store not found'}), 400
-        
         # Extract JSON data from curl command
-        data_match = re.search(r"-d\s+'([^']+)'", target_command)
+        data_match = re.search(r"-d\s+'([^']+)' ([^']+)", target_command)
         if not data_match:
             return jsonify({'error': 'Could not extract backup data from cron command'}), 400
         
-        try:
-            backup_data = json.loads(data_match.group(1))
-        except json.JSONDecodeError:
+        
+        backup_data = json.loads(data_match.group(1))
+        if not backup_data:
             return jsonify({'error': 'Invalid JSON in cron command'}), 400
         
-        # Set the password in request headers (simulate the header)
-        request.headers = request.headers.__class__([
-            ('X-Restic-Password', password)
-        ] + list(request.headers))
+        url = data_match.group(2)
+        if not url:
+            return jsonify({'error': 'Could not extract url from cron'})
         
-        # Call the backup function directly
-        return backup_location(location_id)
+        response = request.post(url, backup_data)
+
+        return response.json()
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
