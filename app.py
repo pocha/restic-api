@@ -779,7 +779,8 @@ def execute_cron_job(cron_id):
         if not url:
             return jsonify({'error': 'Could not extract url from cron'})
         
-        response = request.post(url, backup_data)
+        import requests 
+        response = requests.post(url, backup_data)
 
         return response.json()
         
