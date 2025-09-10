@@ -470,7 +470,7 @@ def schedule_backup(location_id, type, path):
         'time': "00:00",
     }
 
-    response = requests.post(f'{BASE_URL}/locations/{location_id}/backups/schedule', json=schedule_data)
+    response = requests.post(f'{BASE_URL}/locations/{location_id}/schedule', json=schedule_data)
 
     if response.status_code != 200:
         raise TypeError(f"❌ Schedule creation failed: {response.status_code}")
@@ -556,6 +556,54 @@ def check_password_stored_from_schedule(schedule_id):
 
     print("✅ Password stored correctly in password store")
        
+
+def verify_cron_with_schedule_id(schedule_id):
+    """Verify that a cron job was created with the given schedule_id"""
+    print(f"\n🔍 Verifying cron job was created for schedule_id: {schedule_id}")
+    
+    # Get current user's crontab
+    import subprocess
+    try:
+        result = subprocess.run(['crontab', '-l'], capture_output=True, text=True, check=True)
+        cron_content = result.stdout
+        
+        # Look for the schedule_id in the cron entries
+        if f"schedule_id:{schedule_id}" in cron_content:
+            print(f"✅ Cron job found for schedule_id: {schedule_id}")
+            return True
+        else:
+            raise TypeError(f"❌ Cron job not found for schedule_id: {schedule_id}")
+            
+    except subprocess.CalledProcessError as e:
+        if e.returncode == 1:  # No crontab exists
+            raise TypeError("❌ No crontab found - cron job was not created")
+        else:
+            raise TypeError(f"❌ Failed to check crontab: {e}")
+
+def verify_cron_entry_removed(schedule_id):
+    """Verify that the cron job for the given schedule_id was removed"""
+    print(f"\n🔍 Verifying cron job was removed for schedule_id: {schedule_id}")
+    
+    # Get current user's crontab
+    import subprocess
+    try:
+        result = subprocess.run(['crontab', '-l'], capture_output=True, text=True, check=True)
+        cron_content = result.stdout
+        
+        # Look for the schedule_id in the cron entries
+        if f"schedule_id:{schedule_id}" not in cron_content:
+            print(f"✅ Cron job successfully removed for schedule_id: {schedule_id}")
+            return True
+        else:
+            raise TypeError(f"❌ Cron job still exists for schedule_id: {schedule_id}")
+            
+    except subprocess.CalledProcessError as e:
+        if e.returncode == 1:  # No crontab exists
+            print(f"✅ No crontab found - cron job was properly removed for schedule_id: {schedule_id}")
+            return True
+        else:
+            raise TypeError(f"❌ Failed to check crontab: {e}")
+       
 def test_schedule_functionality():
     """Test backup scheduling functionality with command-based backup"""
     print("\n📅 Testing backup scheduling functionality...")
@@ -585,18 +633,43 @@ def test_schedule_functionality():
         # Step 4: Verify password was stored in password store
         # check_password_stored_from_schedule(schedule_id)
 
-        # Step 5: Test backup execution using the key
-        print("\n💾 Testing backup execution...")
-        response = requests.post(f'{BASE_URL}/locations/{location_id}/schedule/{schedule_id}/execute-backup')
+        # Step 5: Test backup execution using the key with streaming
+        print("\n💾 Testing backup execution with streaming...")
+        response = requests.post(f'{BASE_URL}/locations/{location_id}/schedule/{schedule_id}/execute-backup', stream=True)
 
         if response.status_code != 200:
             raise TypeError(f"❌ Manual backup with key failed: {response.status_code}")
-            print(f"Response: {response.text}")
-            return False
-        
-        # check if streaming is happeing while backing up
 
-        print("✅ Manual backup with key completed successfully")
+        # Check if streaming is happening while backing up
+        print("🔄 Checking streaming output...")
+        stream_lines = []
+        final_result = None
+        
+        for line in response.iter_lines():
+            if line:
+                decoded_line = line.decode('utf-8')
+                stream_lines.append(decoded_line)
+                print(f"Stream: {decoded_line}")
+                
+                # Check if this is the final JSON result
+                try:
+                    import json
+                    parsed = json.loads(decoded_line)
+                    if 'completed' in parsed:
+                        final_result = parsed
+                except json.JSONDecodeError:
+                    pass  # Not JSON, continue
+        
+        if not stream_lines:
+            raise TypeError("❌ No streaming output received")
+            
+        if not final_result:
+            raise TypeError("❌ No final result received from streaming")
+            
+        if not final_result.get('success', False):
+            raise TypeError(f"❌ Backup failed: {final_result}")
+            
+        print(f"✅ Streaming backup completed successfully with {len(stream_lines)} stream lines")
 
         # Step 6: Verify backup was created
         config_updated_with_recent_backup(location_id, backup_dir )
