@@ -275,111 +275,7 @@ def test_restic_installation():
             except Exception as e:
                 print(f"⚠️  Warning: Could not restore original binary: {e}")
 
-def test_command_based_backup():
-    """Test command-based backup functionality"""
-    print("\n🔧 Testing command-based backup...")
-    
-    try:
-        # Create temporary directories
-        import tempfile
-        repo_dir = tempfile.mkdtemp(prefix='restic_repo_cmd_', dir='/tmp')
-        restore_dir = tempfile.mkdtemp(prefix='restore_cmd_', dir='/tmp')
-        
-        # Set proper permissions
-        os.chmod(repo_dir, 0o755)
-        os.chmod(restore_dir, 0o755)
-        
-        print(f"✅ Repository directory: {repo_dir}")
-        print(f"✅ Restore target directory: {restore_dir}")
-        
-        # Step 1: Initialize repository
-        print("\n🔧 Initializing restic repository...")
 
-        response = requests.post(f'{BASE_URL}/locations', json={
-            'repo_path': repo_dir,
-            'password': 'test123'
-        })
-        
-        if response.status_code != 200:
-            print(f"❌ Repository initialization failed: {response.status_code}")
-            return False
-        
-        print("✅ Repository initialized successfully")
-        
-        # Step 2: Perform command-based backup
-        print("\n💾 Performing command-based backup...")
-        response = requests.post(f'{BASE_URL}/backup', json={
-            'repo_path': repo_dir,
-            'password': 'test123',
-            'type': 'command',
-            'command': 'cat /etc/hostname',
-            'filename': 'hostname.txt',
-            'backup_name': 'test-command-backup'
-        })
-        
-        if response.status_code != 200:
-            print(f"❌ Command backup failed: {response.status_code}")
-            print(f"Response: {response.text}")
-            return False
-        
-        print("✅ Command backup completed successfully")
-        
-        # Step 3: List snapshots
-        print("\n📋 Listing snapshots...")
-        response = requests.post(f'{BASE_URL}/snapshots', json={
-            'repo_path': repo_dir,
-            'password': 'test123'
-        })
-        
-        if response.status_code != 200:
-            print(f"❌ Failed to list snapshots: {response.status_code}")
-            return False
-        
-        snapshots = response.json()
-        if not snapshots:
-            print("❌ No snapshots found")
-            return False
-        
-        print(f"✅ Found {len(snapshots)} snapshot(s)")
-        snapshot_id = snapshots[0]['short_id']
-        print(f"✅ Using snapshot: {snapshot_id}")
-        
-        # Step 4: Restore backup
-        print("\n🔄 Restoring command backup...")
-        response = requests.post(f'{BASE_URL}/restore', json={
-            'repo_path': repo_dir,
-            'password': 'test123',
-            'snapshot_id': snapshot_id,
-            'restore_path': restore_dir
-        })
-        
-        if response.status_code != 200:
-            print(f"❌ Restore failed: {response.status_code}")
-            return False
-        
-        print("✅ Restore completed successfully")
-        
-        # Step 5: Verify restored file
-        print("\n🔍 Verifying restored file...")
-        restored_file = os.path.join(restore_dir, 'hostname.txt')
-        if not os.path.exists(restored_file):
-            print("❌ Restored file not found: hostname.txt")
-            return False
-        
-        with open(restored_file, 'r') as f:
-            content = f.read().strip()
-        
-        if not content:
-            print("❌ Restored file is empty")
-            return False
-        
-        print(f"✅ Verified restored file content: {content}")
-        print("✅ Command-based backup test passed!")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Command backup test failed with exception: {e}")
-        return False
 
 def test_schedule_functionality():
     """Test backup scheduling functionality with command-based backup"""
@@ -574,7 +470,15 @@ def create_backup_location(repo_dir):
     print(f"✅ Repository initialized with location_id: {location_id}")
     return location_id
     
-def take_dir_backup(location_id, backup_dir):
+def take_backup_command(location_id, command, filename):
+   
+    backup_data = {
+        'command': command,
+        'filename': filename
+    }
+    return take_backup(location_id, backup_data)
+    
+def take_backup_dir(location_id, backup_dir):
    
     # Step 5: Create test files
     print("\n📝 Creating test files...")
@@ -592,6 +496,10 @@ def take_dir_backup(location_id, backup_dir):
         'path': backup_dir
     }
     
+    return take_backup(location_id, backup_data)
+  
+    
+def take_backup(location_id, backup_data):
     headers = {'X-Restic-Password': 'test_password_123'}
     response = requests.post(f'{BASE_URL}/locations/{location_id}/backups', json=backup_data, headers=headers, stream=True)
     if response.status_code != 200:
@@ -672,7 +580,7 @@ def get_snapshot_content(location_id, snapshot_id):
     if len(backup_contents) > 10:
         print(f"   ... and {len(backup_contents) - 10} more items")
 
-def restore_backup(location_id, snapshot_id, restore_dir, backup_dir, backup_dir_renamed):
+def restore_backup(location_id, snapshot_id, restore_dir, backup_dir=None, backup_dir_renamed=None):
     # Step 10: Restore backup
     print("\n🔄 Restoring backup...")
     restore_data = {
@@ -690,6 +598,9 @@ def restore_backup(location_id, snapshot_id, restore_dir, backup_dir, backup_dir
         print("❌ Restore failed")
         return False
     
+    if not backup_dir:
+        return True 
+
     # Step 11: Compare original and restored directories
     print("\n🔍 Comparing original and restored data...")
     
@@ -705,17 +616,11 @@ def restore_backup(location_id, snapshot_id, restore_dir, backup_dir, backup_dir
         # If not found, the content might be directly in restore_dir
         restored_content_dir = restore_dir
     
-    success = compare_directories(backup_dir_renamed, restored_content_dir)
-    # Final result
-    print("\n" + "=" * 50)
-    if success:
-        print("🎉 END-TO-END TEST PASSED! 🎉")
-        print("✅ All operations completed successfully")
-        print("✅ Data integrity verified")
-        return True
-    else:
-        print("❌ END-TO-END TEST FAILED!")
-        return False
+    
+    success = compare_directories(backup_dir_renamed, restored_content_dir) if backup_dir_renamed else True
+
+    return success
+   
     
 def move_dir(backup_dir):
    # Step 8: Rename (simulate deletion) of original directory
@@ -725,6 +630,60 @@ def move_dir(backup_dir):
     print(f"   Renamed {backup_dir} to {backup_dir_renamed}")
     return backup_dir_renamed
 
+    
+def test_backup(type="directory"):
+    try: 
+        print("\n📁 Creating temporary directories in /tmp...")
+        import tempfile
+        
+        # Create temporary directories in /tmp
+        repo_dir = tempfile.mkdtemp(prefix='restic_repo_', dir='/tmp')
+        backup_dir = tempfile.mkdtemp(prefix='backup_source_', dir='/tmp')
+        restore_dir = tempfile.mkdtemp(prefix='restore_target_', dir='/tmp')
+        
+        # Set proper permissions
+        os.chmod(repo_dir, 0o755)
+        os.chmod(backup_dir, 0o755)
+        os.chmod(restore_dir, 0o755)
+        
+        
+        print(f"   Repository: {repo_dir}")
+        print(f"   Backup source: {backup_dir}")
+        print(f"   Restore target: {restore_dir}")
+
+        location_id = create_backup_location(repo_dir)
+        
+        if type == "directory":
+            take_backup_dir(location_id,  backup_dir)
+            config_updated_with_recent_backup(location_id, backup_dir)
+        else:
+            command = 'cat /etc/hostname'
+            filename = 'hostname.txt'
+            take_backup_command(location_id, command, filename)
+            config_updated_with_recent_backup(location_id, command + ":" + filename )
+       
+        snapshot_id = check_snapshots_and_get_latest(location_id)
+        
+        get_snapshot_content(location_id, snapshot_id)
+
+        if type == "directory":
+            backup_dir_renamed = move_dir(backup_dir)
+            return restore_backup(location_id, snapshot_id, restore_dir, backup_dir, backup_dir_renamed)
+        else:
+            return restore_backup(location_id, snapshot_id, restore_dir)
+
+
+    except Exception as e:
+        print(f"❌ Test failed with exception: {e}")
+        return False
+
+    finally:
+        #Cleanup
+        print("\n🧹 Cleaning up...")
+        shutil.rmtree(repo_dir, ignore_errors=True)
+        shutil.rmtree(backup_dir_renamed, ignore_errors=True)
+        shutil.rmtree(restore_dir, ignore_errors=True)
+       
 
 def main():
     """Main end-to-end test function"""
@@ -745,25 +704,6 @@ def main():
         #if not test_restic_installation():
         #    return False
         
-        # Step 2: Create temporary directories in /tmp
-        print("\n📁 Creating temporary directories in /tmp...")
-        import tempfile
-        
-        # Create temporary directories in /tmp
-        repo_dir = tempfile.mkdtemp(prefix='restic_repo_', dir='/tmp')
-        backup_dir = tempfile.mkdtemp(prefix='backup_source_', dir='/tmp')
-        restore_dir = tempfile.mkdtemp(prefix='restore_target_', dir='/tmp')
-        
-        # Set proper permissions
-        os.chmod(repo_dir, 0o755)
-        os.chmod(backup_dir, 0o755)
-        os.chmod(restore_dir, 0o755)
-        
-        
-        print(f"   Repository: {repo_dir}")
-        print(f"   Backup source: {backup_dir}")
-        print(f"   Restore target: {restore_dir}")
-        
         # Step 3: Update restic version in configuration
         print("\n⚙️  Setting up configuration...")
         
@@ -774,26 +714,16 @@ def main():
             return False
         print(f"✅ Restic version updated: {result.get('restic_version', 'Unknown')}")
         
-        location_id = create_backup_location(repo_dir)
-     
-        take_dir_backup(location_id, backup_dir)
-        
-        config_updated_with_recent_backup(location_id, backup_dir)
-        
-        snapshot_id = check_snapshots_and_get_latest(location_id)
-       
-        get_snapshot_content(location_id, snapshot_id)
+        success = test_backup("command") and test_backup("directory")
 
-        backup_dir_renamed = move_dir(backup_dir)
-        restore_backup(location_id, snapshot_id, restore_dir, backup_dir, backup_dir_renamed)
-       
-        
-        # Step 12: Cleanup
-        print("\n🧹 Cleaning up...")
-        shutil.rmtree(repo_dir, ignore_errors=True)
-        shutil.rmtree(backup_dir_renamed, ignore_errors=True)
-        shutil.rmtree(restore_dir, ignore_errors=True)
-        print("   Temporary directories cleaned up")
+        # Final result
+        print("\n" + "=" * 50)
+        if success:
+            print("🎉 END-TO-END TEST PASSED! 🎉")
+            print("✅ All operations completed successfully")
+            print("✅ Data integrity verified")
+        else:
+            print("❌ END-TO-END TEST FAILED!")
             
     except Exception as e:
         print(f"❌ Test failed with exception: {e}")
