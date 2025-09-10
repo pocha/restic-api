@@ -275,8 +275,6 @@ def test_restic_installation():
             except Exception as e:
                 print(f"⚠️  Warning: Could not restore original binary: {e}")
 
-
-
 def test_schedule_functionality():
     """Test backup scheduling functionality with command-based backup"""
     print("\n📅 Testing backup scheduling functionality...")

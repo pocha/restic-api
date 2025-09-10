@@ -259,7 +259,7 @@ function displayScheduledBackups(schedules, locationId) {
           </div>
         </div>
         <div class="flex space-x-2 ml-4">
-          <button onclick="(async function(btn) { const password = prompt('Enter backup location password'); if (!password) { alert('Please enter the password in the form first'); return; } showLoadingOnButton(btn); try { if ('${schedule.type}' === 'command') { await startBackup('${locationId}', { type: 'command', command: '${schedule.command}', filename: '${schedule.filename}' }, password); } else { await startBackup('${locationId}', { type: 'directory', path: '${schedule.path}' }, password); } } catch (error) { console.error('Backup failed:', error); showDataInModal('Backup Error', error.message, false); } hideLoadingOnButton(btn); })(this)" 
+          <button onclick="executeScheduledBackup('${locationId}', '${schedule.schedule_id}', this)" 
                   class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm transition-colors">
             Backup Now
           </button>
@@ -328,6 +328,32 @@ async function backupNowForSchedule(locationId, schedule, button) {
   }
   hideLoadingOnButton(button);
 }
+
+async function executeScheduledBackup(locationId, scheduleId, button) {
+  showLoadingOnButton(button);
+  try {
+    const response = await fetch(`/locations/${locationId}/execute-cron/${scheduleId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to execute scheduled backup');
+    }
+
+    // Handle the streaming response
+    showDataInModal('Backup Progress', response.body, true);
+    
+  } catch (error) {
+    console.error('Scheduled backup execution failed:', error);
+    showDataInModal('Backup Error', error.message, false);
+  }
+  hideLoadingOnButton(button);
+}
+
 
 // UI functions
 async function loadLocations() {
