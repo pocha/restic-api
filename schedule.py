@@ -228,19 +228,30 @@ def execute_cron_job(cron_id):
         if not data_match:
             return jsonify({'error': 'Could not extract backup data from cron command'}), 400
         
-        
         backup_data = json.loads(data_match.group(1))
         if not backup_data:
             return jsonify({'error': 'Invalid JSON in cron command'}), 400
         
+        # Extract location_id from the URL
         url = data_match.group(2)
-        if not url:
-            return jsonify({'error': 'Could not extract url from cron'})
+        location_match = re.search(r'/locations/([^/]+)/backups', url)
+        if not location_match:
+            return jsonify({'error': 'Could not extract location_id from URL'}), 400
         
-        import requests 
-        response = requests.post(url, backup_data)
-
-        return response.json()
+        location_id = location_match.group(1)
+        
+        # Import backup function from app.py
+        from app import backup_location
+        
+        # Create mock request object with backup data
+        class MockRequest:
+            def __init__(self, json_data):
+                self.json = json_data
+        
+        mock_request = MockRequest(backup_data)
+        
+        # Call backup function directly to get streaming response
+        return backup_location(location_id, mock_request)
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
