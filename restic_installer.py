@@ -193,59 +193,6 @@ def get_directory_size():
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-    
-def get_directory_size(path):
-    """Get the size of a directory in bytes"""
-    total_size = 0
-    try:
-        for dirpath, dirnames, filenames in os.walk(path):
-            for filename in filenames:
-                filepath = os.path.join(dirpath, filename)
-                try:
-                    total_size += os.path.getsize(filepath)
-                except (OSError, IOError):
-                    # Skip files that can't be accessed
-                    continue
-    except Exception as e:
-        print(f"Error calculating directory size: {e}")
-        return 0
-    
-    return total_size
-
-@app.route('/directory-size', methods=['POST'])
-def get_directory_size_endpoint():
-    """Get the size of a directory"""
-    try:
-        data = request.get_json()
-        path = data.get('path')
-        
-        if not path:
-            return jsonify({'error': 'Path is required'}), 400
-        
-        if not os.path.exists(path):
-            return jsonify({'error': 'Path does not exist'}), 404
-        
-        if not os.path.isdir(path):
-            return jsonify({'error': 'Path is not a directory'}), 400
-        
-        size_bytes = get_directory_size(path)
-        
-        # Convert to human readable format
-        def format_bytes(bytes_val):
-            for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-                if bytes_val < 1024.0:
-                    return f"{bytes_val:.1f} {unit}"
-                bytes_val /= 1024.0
-            return f"{bytes_val:.1f} PB"
-        
-        return jsonify({
-            'path': path,
-            'size_bytes': size_bytes,
-            'size_formatted': format_bytes(size_bytes)
-        })
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/config/update_restic', methods=['POST'])

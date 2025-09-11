@@ -55,7 +55,7 @@ async function fetchConfig() {
 
 async function fetchSize(path) {
   try {
-    const response = await fetch(`${API_BASE}/directory-size?path=${encodeURIComponent(path)}`)
+    const response = await fetch(`${API_BASE}/size?path=${encodeURIComponent(path)}`)
     if (!response.ok) {
       const errorData = await response.json()
       throw new Error(errorData.error || "Failed to fetch size")
