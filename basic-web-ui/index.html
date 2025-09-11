@@ -239,7 +239,26 @@
       </div>
     </div>
 
-    <script src="basic-web-ui/script.js"></script>
+    <script src="basic-web-ui/script.js" type="module"></script>
+    <script>
+      // Toggle backup input fields based on backup type
+      function toggleBackupInputs() {
+        const backupType = document.getElementById('backupType').value
+        const directoryFields = document.getElementById('directoryFields')
+        const commandFields = document.getElementById('commandFields')
+        
+        if (backupType === 'directory') {
+          directoryFields.classList.remove('hidden')
+          commandFields.classList.add('hidden')
+        } else if (backupType === 'command') {
+          directoryFields.classList.add('hidden')
+          commandFields.classList.remove('hidden')
+        } else {
+          directoryFields.classList.add('hidden')
+          commandFields.classList.add('hidden')
+        }
+      }
+    </script>
 
     <!-- Modal for displaying logs and data -->
     <div id="dataModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
