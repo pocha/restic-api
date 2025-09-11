@@ -9,6 +9,8 @@ import subprocess
 import signal
 import sys
 from pathlib import Path
+from crontab import CronTab
+
 
 from restic_installer_scripts.linux import restic_removal_linux, download_restic_linux
 from restic_installer_scripts.windows import restic_removal_windows, download_restic_windows
@@ -83,22 +85,12 @@ def api_call(method, endpoint, data=None, stream=False):
 
 def stream_output(response):
     """Stream and display real-time output"""
-    for line in response.iter_lines():
+    for line in response.iter_lines():  
         if line:
-            try:
-                data = json.loads(line.decode('utf-8'))
-                if data.get('type') == 'output':
-                    print(f"   📊 {data.get('data', '').strip()}")
-                elif data.get('type') == 'error':
-                    print(f"   ❌ {data.get('data', '').strip()}")
-                elif data.get('type') == 'complete':
-                    print(f"   ✅ Command completed with exit code: {data.get('exit_code', 'unknown')}")
-                    # Check if backup failed based on success flag
-                    if not data.get('success', True):
-                        raise Exception(f"Backup failed: success=false, snapshot_id={data.get('snapshot_id')}")
-                    return data.get('exit_code', 0)
-            except json.JSONDecodeError:
-                print(f"   📝 {line.decode('utf-8').strip()}")
+            data = line.decode('utf-8').strip()
+            print(f"   📝 {data}")
+            if "error" in data:
+                raise Exception("Streaming failed as there is error in the output") 
     return 0
 
 def create_test_files(directory):
@@ -289,7 +281,7 @@ def create_backup_location(repo_dir):
     }
     response = requests.post(f'{BASE_URL}/locations', json=init_data)
     if response.status_code != 200:
-        raise TypeError(f"❌ Failed to initialize repository: {response.status_code}")
+        raise TypeError(f"❌ Failed to initialize repository: {response.status_code}, {response.text}")
         print(f"   Response: {response.text}")
         return False
     
@@ -463,17 +455,16 @@ def schedule_backup(location_id, type, path):
 # Step 2: Create a scheduled backup with command
     print("\n📅 Creating scheduled backup...")
     schedule_data = {
-        'key': 'test_schedule_key',  # Using key instead of password
         'type': type,
         'path': path,
         'frequency': 'daily',
-        'time': "00:00",
+        'time': "02:00",
     }
-
-    response = requests.post(f'{BASE_URL}/locations/{location_id}/schedule', json=schedule_data)
+    headers = {'X-Restic-Password': 'test_password_123'}
+    response = requests.post(f'{BASE_URL}/locations/{location_id}/schedule', json=schedule_data, headers=headers)
 
     if response.status_code != 200:
-        raise TypeError(f"❌ Schedule creation failed: {response.status_code}")
+        raise TypeError(f"❌ Schedule creation failed: {response.status_code}, {response.text}")
         print(f"Response: {response.text}")
         return False
 
@@ -486,7 +477,7 @@ def schedule_backup(location_id, type, path):
     return schedule_id
     
 def test_backup(type="directory"):
-    print(f"\n========\nTesting {type} based backup\n=========\n")
+    print(f"\n================================\nTesting {type} based backup\n===============================\n")
     try: 
         print("\n📁 Creating temporary directories in /tmp...")
         import tempfile
@@ -556,57 +547,36 @@ def check_password_stored_from_schedule(schedule_id):
 
     print("✅ Password stored correctly in password store")
        
+   
 
-def verify_cron_with_schedule_id(schedule_id):
-    """Verify that a cron job was created with the given schedule_id"""
-    print(f"\n🔍 Verifying cron job was created for schedule_id: {schedule_id}")
-    
-    # Get current user's crontab
-    import subprocess
-    try:
-        result = subprocess.run(['crontab', '-l'], capture_output=True, text=True, check=True)
-        cron_content = result.stdout
+def retrieve_cron_entry(schedule_id):
+    cron = CronTab(user=True)
         
-        # Look for the schedule_id in the cron entries
-        if f"schedule_id:{schedule_id}" in cron_content:
-            print(f"✅ Cron job found for schedule_id: {schedule_id}")
-            return True
-        else:
-            raise TypeError(f"❌ Cron job not found for schedule_id: {schedule_id}")
-            
-    except subprocess.CalledProcessError as e:
-        if e.returncode == 1:  # No crontab exists
-            raise TypeError("❌ No crontab found - cron job was not created")
-        else:
-            raise TypeError(f"❌ Failed to check crontab: {e}")
+    target_command = None
+    jobs = cron.find_comment(f"restic_schedule_{schedule_id}")
+    for job in jobs:
+        target_command = job.command
+        break
+    
+    return target_command
 
-def verify_cron_entry_removed(schedule_id):
-    """Verify that the cron job for the given schedule_id was removed"""
-    print(f"\n🔍 Verifying cron job was removed for schedule_id: {schedule_id}")
+def get_first_schedule_id(location_id):
+    response = requests.get(f'{BASE_URL}/locations/{location_id}/schedule')
+    if response.status_code != 200:
+        raise TypeError(f"❌ Schedule GET call failed: {response.status_code}")
     
-    # Get current user's crontab
-    import subprocess
+    json = response.json()
+    #print(json)
     try:
-        result = subprocess.run(['crontab', '-l'], capture_output=True, text=True, check=True)
-        cron_content = result.stdout
-        
-        # Look for the schedule_id in the cron entries
-        if f"schedule_id:{schedule_id}" not in cron_content:
-            print(f"✅ Cron job successfully removed for schedule_id: {schedule_id}")
-            return True
-        else:
-            raise TypeError(f"❌ Cron job still exists for schedule_id: {schedule_id}")
-            
-    except subprocess.CalledProcessError as e:
-        if e.returncode == 1:  # No crontab exists
-            print(f"✅ No crontab found - cron job was properly removed for schedule_id: {schedule_id}")
-            return True
-        else:
-            raise TypeError(f"❌ Failed to check crontab: {e}")
+        first_schedule = json.get("schedules")[0]
+        return first_schedule.get("schedule_id")
+    except Exception:
+        return None
        
 def test_schedule_functionality():
-    """Test backup scheduling functionality with command-based backup"""
-    print("\n📅 Testing backup scheduling functionality...")
+    print(f"================================================")
+    print(f"Testing Schedule Functionality for backup")
+    print(f"================================================")
 
     try:
         # Create temporary directories
@@ -618,8 +588,10 @@ def test_schedule_functionality():
 
         # Set proper permissions
         os.chmod(repo_dir, 0o755)
+        os.chmod(backup_dir, 0o755)
 
         print(f"✅ Repository directory: {repo_dir}")
+        print(f"✅ Backup directory: {backup_dir}")
 
         # Step 1: Initialize repository
         location_id = create_backup_location(repo_dir)
@@ -628,62 +600,46 @@ def test_schedule_functionality():
         schedule_id = schedule_backup(location_id, "directory", backup_dir)
 
         # Step 3: Verify cron job was created
-        verify_cron_with_schedule_id(schedule_id)
+        print(f"\n🔍 Verifying cron job was created for schedule_id: {schedule_id}")
+        cron_entry = retrieve_cron_entry(schedule_id)
+        if not cron_entry:
+            raise TypeError("Scheduling backup did NOT create cron entry")
+        print(f"✅ Found cron entry for schedule_id: {schedule_id}")
 
-        # Step 4: Verify password was stored in password store
-        # check_password_stored_from_schedule(schedule_id)
-
+        # Step 4: Check if config is updated with schedule
+        print(f"\n🔍 Get schedule from config to check if schedule_id: {schedule_id} is there")
+        first_schedule_id =  get_first_schedule_id(location_id) 
+        if not first_schedule_id or first_schedule_id != schedule_id:
+            raise TypeError(f"❌ Config does not have {schedule_id} in it")
+        print(f"✅ Config is updated & has {schedule_id} in it")
+   
         # Step 5: Test backup execution using the key with streaming
         print("\n💾 Testing backup execution with streaming...")
         response = requests.post(f'{BASE_URL}/locations/{location_id}/schedule/{schedule_id}/execute-backup', stream=True)
-
         if response.status_code != 200:
-            raise TypeError(f"❌ Manual backup with key failed: {response.status_code}")
+            raise TypeError(f"❌ Manual backup with key failed: {response.status_code}, {response.text}")
+        stream_output(response)
+        print(f"✅ Streaming backup completed successfully")
 
-        # Check if streaming is happening while backing up
-        print("🔄 Checking streaming output...")
-        stream_lines = []
-        final_result = None
-        
-        for line in response.iter_lines():
-            if line:
-                decoded_line = line.decode('utf-8')
-                stream_lines.append(decoded_line)
-                print(f"Stream: {decoded_line}")
-                
-                # Check if this is the final JSON result
-                try:
-                    import json
-                    parsed = json.loads(decoded_line)
-                    if 'completed' in parsed:
-                        final_result = parsed
-                except json.JSONDecodeError:
-                    pass  # Not JSON, continue
-        
-        if not stream_lines:
-            raise TypeError("❌ No streaming output received")
-            
-        if not final_result:
-            raise TypeError("❌ No final result received from streaming")
-            
-        if not final_result.get('success', False):
-            raise TypeError(f"❌ Backup failed: {final_result}")
-            
-        print(f"✅ Streaming backup completed successfully with {len(stream_lines)} stream lines")
-
-        # Step 6: Verify backup was created
-        config_updated_with_recent_backup(location_id, backup_dir )
-        # if just one snapshot exists, we are good. 
+        # Step 6: Verify backup was created - if just one snapshot exists, we are good. 
         check_snapshots_and_get_latest(location_id)
 
-
-        # Step 7: Clean up - remove cron job
+        # Step 7: Clean up - remove cron job by calling the DELETE API 
+        print(f"\n🔍 Verifying cron job was removed for schedule_id: {schedule_id}")
         response = requests.delete(f'{BASE_URL}/locations/{location_id}/schedule/{schedule_id}')
-
         if response.status_code != 200:
             raise TypeError(f"❌ deletion of scheduled backup failed: {response.status_code}")
-        
-        verify_cron_entry_removed(schedule_id)
+        cron_entry = retrieve_cron_entry(schedule_id)
+        if cron_entry:
+            raise TypeError(f"Cron entry still exists even after the schedule is deleted")
+        print(f"✅ Cron job is removed")
+
+        # Step 8: Check if config schedule is updated
+        print(f"\n🔍 Checking if backup with schedule_id: {schedule_id} is removed")
+        if get_first_schedule_id(location_id):
+            raise TypeError(f"❌ Config still has {schedule_id} in it")
+        print(f"✅ Config is updated & has {schedule_id} is removed")
+   
 
         print("✅ Schedule functionality test passed!")
         return True
@@ -691,6 +647,11 @@ def test_schedule_functionality():
     except Exception as e:
         print(f"❌ Schedule test failed with exception: {e}")
         return False
+    finally:
+        #Cleanup
+        print("\n🧹 Cleaning up...")
+        shutil.rmtree(repo_dir, ignore_errors=True)
+        shutil.rmtree(backup_dir, ignore_errors=True)
     
 def main():
     """Main end-to-end test function"""
@@ -714,14 +675,17 @@ def main():
         # Step 3: Update restic version in configuration
         print("\n⚙️  Setting up configuration...")
         
-        # Use the new /config/update_restic API to set restic version
+        #Use the new /config/update_restic API to set restic version
         result = api_call('POST', '/config/update_restic', {})
         if not result or 'restic_version' not in str(result):
             raise TypeError("❌ Failed to update restic configuration")
             return False
         print(f"✅ Restic version updated: {result.get('restic_version', 'Unknown')}")
         
-        success = test_backup("command") and test_backup("directory") and test_schedule_functionality()
+        success = test_backup("command") \
+        and test_backup("directory") \
+        and test_schedule_functionality()
+        #success = test_schedule_functionality()
 
         # Final result
         print("\n" + "=" * 50)

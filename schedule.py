@@ -10,19 +10,26 @@ from utils import load_config, save_config, get_password_from_header, save_passw
 
 def get_cron_expression(frequency, time_str):
     """Convert frequency and time to cron expression"""
+    output = []
     try:
         hour, minute = map(int, time_str.split(':'))
+        output.extend([hour, minute])
     except ValueError:
         raise ValueError("Invalid time format. Use HH:MM")
     
     if frequency == 'daily':
-        return f"{minute} {hour} * * *"
+        output.extend(["*","*","*"])
+        #return f"{minute} {hour} * * *"
     elif frequency == 'weekly':
-        return f"{minute} {hour} * * 0"  # Sunday
+        output.extend(["*","*","0"])
+        #return f"{minute} {hour} * * 0"  # Sunday
     elif frequency == 'monthly':
-        return f"{minute} {hour} 1 * *"  # First day of month
+        output.extend(["1","*","*"])
+        #return f"{minute} {hour} 1 * *"  # First day of month
     else:
         raise ValueError("Invalid frequency. Use daily, weekly, or monthly")
+    
+    return output
 
 def create_cron_job(schedule_id, location_id, backup_data, cron_expression):
     """Create cron job for Linux"""
@@ -114,7 +121,7 @@ def remove_scheduled_job(schedule_id):
         print(f"Error removing scheduled job: {e}")
         return False
 
-@app.route('/locations/<location_id>/backups/schedule', methods=['POST'])
+@app.route('/locations/<location_id>/schedule', methods=['POST'])
 def create_backup_schedule(location_id):
     """Create a scheduled backup"""
     try:
@@ -165,13 +172,8 @@ def create_backup_schedule(location_id):
         # Initialize schedules in config if not exists
         if 'schedules' not in config:
             config['schedules'] = {}
-        
-        
-        # Get cron expression
-        try:
-            cron_expression = get_cron_expression(frequency, time_str)
-        except ValueError as e:
-            return jsonify({'error': str(e)}), 400
+       
+        cron_expression = get_cron_expression(frequency, time_str)
         
         # Create platform-specific scheduled job
         current_platform = platform.system().lower()
@@ -188,15 +190,16 @@ def create_backup_schedule(location_id):
             if not success:
                 return jsonify({'error': 'Failed to create scheduled job'}), 500
             
-            # Store the cron_id in the schedule data
-            schedule_data = {
-                'id': schedule_id,
-                'location_id': location_id,
-                'frequency': frequency,
-                'time': time_str,
-                'created_at': datetime.now().isoformat(),
-                **backup_data
-            }
+        # Store the cron_id in the schedule data
+        schedule_data = {
+            'id': schedule_id,
+            'location_id': location_id,
+            'frequency': frequency,
+            'time': time_str,
+            'created_at': datetime.now().isoformat(),
+            'platform': current_platform,
+            **backup_data
+        }
         
         # # Add path to location's paths if not already there (for directory backups)
         # if backup_type == 'directory' and backup_data['path'] not in config['locations'][location_id]['paths']:
@@ -208,7 +211,6 @@ def create_backup_schedule(location_id):
         #         config['locations'][location_id]['paths'].append(snapshot_path)
         
         # Save schedule info with cron_id
-        schedule_data['platform'] = current_platform
         config['schedules'][schedule_id] = schedule_data
         
         save_config(config)
@@ -223,14 +225,14 @@ def create_backup_schedule(location_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/locations/<location_id>/schedule/<schedule_id>/execute-backup', methods=['POST'])
-def execute_cron_job(cron_id):
+def execute_cron_job(location_id, schedule_id):
     """Execute a scheduled cron job by its ID"""
     try:
         from crontab import CronTab
         cron = CronTab(user=True)
          
         target_command = None
-        jobs = cron.find_comment(f"restic_schedule_{cron_id}")
+        jobs = cron.find_comment(f"restic_schedule_{schedule_id}")
         for job in jobs:
             target_command = job.command
             break
@@ -251,19 +253,20 @@ def execute_cron_job(cron_id):
             return jsonify({'error': 'Invalid JSON in cron command'}), 400
         
         # Extract location_id from the URL
-        url = data_match.group(2)
-        location_match = re.search(r'/locations/([^/]+)/backups', url)
-        if not location_match:
-            return jsonify({'error': 'Could not extract location_id from URL'}), 400
+        # url = data_match.group(2)
+        # location_match = re.search(r'/locations/([^/]+)/backups', url)
+        # if not location_match:
+        #     return jsonify({'error': 'Could not extract location_id from URL'}), 400
         
-        location_id = location_match.group(1)
+        # location_id = location_match.group(1)
 
-        return extract_password_and_launch_backup(location_id, jsonify(backup_data))
+        return extract_password_and_launch_backup(location_id, backup_data)
         
     except Exception as e:
+        print(str(e))
         return jsonify({'error': str(e)}), 500
 
-@app.route('/locations/<location_id>/backups/schedule', methods=['GET'])
+@app.route('/locations/<location_id>/schedule', methods=['GET'])
 def list_backup_schedules(location_id):
     """List all scheduled backups for a location"""
     try:
@@ -285,7 +288,7 @@ def list_backup_schedules(location_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/locations/<location_id>/backups/schedule/<schedule_id>', methods=['DELETE'])
+@app.route('/locations/<location_id>/schedule/<schedule_id>', methods=['DELETE'])
 def delete_backup_schedule(location_id, schedule_id):
     """Delete a scheduled backup"""
     try:
