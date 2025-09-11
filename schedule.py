@@ -1,12 +1,12 @@
-import os
+from datetime import datetime
 import json
+import os
 import subprocess
 import platform
 import uuid
-import requests
-from flask import request, jsonify
+from flask import request, jsonify, Response
 from app_factory import app
-from utils import load_config, save_config, get_password_from_header, save_password_to_store
+from utils import load_config, save_config, get_password_from_header, save_password_to_store, extract_password_and_launch_backup
 
 def get_cron_expression(frequency, time_str):
     """Convert frequency and time to cron expression"""
@@ -25,45 +25,28 @@ def get_cron_expression(frequency, time_str):
         raise ValueError("Invalid frequency. Use daily, weekly, or monthly")
 
 def create_cron_job(schedule_id, location_id, backup_data, cron_expression):
-    """Create a cron job for scheduled backup"""
+    """Create cron job for Linux"""
+    import uuid
     try:
-        # Always use key-based authentication for cron jobs
-        password = get_password_from_header()
-        if not password:
-            raise ValueError("Password is required")
+        from crontab import CronTab
+        cron = CronTab(user=True)
         
-        # Save password with schedule_id as key
-        save_password_to_store(schedule_id, password)
         
-        # Prepare backup data with key instead of password
-        backup_data_with_key = backup_data.copy()
-        backup_data_with_key['key'] = schedule_id
-        
-        # Create curl command for the backup API
-        curl_cmd = f"curl -X POST -H 'Content-Type: application/json' -d '{json.dumps(backup_data_with_key)}' http://localhost:5000/locations/{location_id}/backups"
-        
-        # Create cron job with unique comment
-        cron_entry = f'{cron_expression} {curl_cmd} # restic-api-{schedule_id}'
-        
-        # Add to crontab
-        result = subprocess.run(['crontab', '-l'], capture_output=True, text=True)
-        current_crontab = result.stdout if result.returncode == 0 else ""
-        
-        # Add new entry
-        new_crontab = current_crontab + cron_entry + '\n'
-        
-        # Write back to crontab
-        process = subprocess.Popen(['crontab', '-'], stdin=subprocess.PIPE, text=True)
-        process.communicate(input=new_crontab)
-        
-        if process.returncode == 0:
-            return True
+        # Create command to run backup
+        if backup_data.get('type') == 'command':
+            # For command-based backups
+            backup_cmd = f"curl -X POST -H 'Content-Type: application/json' -d '{{\"type\": \"command\", \"command\": \"{backup_data['command']}\", \"filename\": \"{backup_data['filename']}\", \"key\": \"{schedule_id}\"}}' http://localhost:5000/locations/{location_id}/backups"
         else:
-            raise Exception("Failed to add cron job")
-            
+            # For directory-based backups
+            backup_cmd = f"curl -X POST -H 'Content-Type: application/json' -d '{{\"path\": \"{backup_data['path']}\", \"key\": \"{schedule_id}\"}}' http://localhost:5000/locations/{location_id}/backups"
+        
+        job = cron.new(command=backup_cmd, comment=f"restic_schedule_{schedule_id}")
+        job.setall(cron_expression)
+        cron.write()
+        return True
     except Exception as e:
         print(f"Error creating cron job: {e}")
-        raise
+        return False
 
 def create_windows_task(schedule_id, location_id, path, frequency, time_str):
     """Create a Windows scheduled task for backup"""
@@ -106,101 +89,136 @@ def create_windows_task(schedule_id, location_id, path, frequency, time_str):
         raise
 
 def remove_scheduled_job(schedule_id):
-    """Remove a scheduled job (cron job or Windows task)"""
+    """Remove scheduled job (cross-platform)"""
     try:
-        if platform.system() == 'Windows':
-            # Remove Windows scheduled task
-            task_name = f"restic-api-{schedule_id}"
-            cmd = ['schtasks', '/delete', '/tn', task_name, '/f']
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            return result.returncode == 0
-        else:
-            # Remove cron job
-            result = subprocess.run(['crontab', '-l'], capture_output=True, text=True)
-            if result.returncode != 0:
-                return True  # No crontab exists
+        current_platform = platform.system().lower()
+        
+        if current_platform == 'linux':
+            from crontab import CronTab
+            cron = CronTab(user=True)
+            jobs = cron.find_comment(f"restic_schedule_{schedule_id}")
+            for job in jobs:
+                cron.remove(job)
+            cron.write()
+        elif current_platform == 'windows':
+            task_name = f"ResticBackup_{schedule_id}"
+            subprocess.run(['schtasks', '/delete', '/tn', task_name, '/f'], capture_output=True)
             
-            current_crontab = result.stdout
-            lines = current_crontab.split('\n')
-            
-            # Filter out the line with our schedule_id
-            filtered_lines = [line for line in lines if f'restic-api-{schedule_id}' not in line]
-            
-            # Write back to crontab
-            new_crontab = '\n'.join(filtered_lines)
-            process = subprocess.Popen(['crontab', '-'], stdin=subprocess.PIPE, text=True)
-            process.communicate(input=new_crontab)
-            
-            return process.returncode == 0
-            
+            # Also remove the PowerShell script
+            script_path = f"backup_schedule_{schedule_id}.ps1"
+            if os.path.exists(script_path):
+                os.remove(script_path)
+        
+        return True
     except Exception as e:
         print(f"Error removing scheduled job: {e}")
         return False
 
-@app.route('/locations/<location_id>/schedule', methods=['POST'])
+@app.route('/locations/<location_id>/backups/schedule', methods=['POST'])
 def create_backup_schedule(location_id):
-    """Create a scheduled backup for a location"""
+    """Create a scheduled backup"""
     try:
-        config = load_config()
-        if location_id not in config['locations']:
-            return jsonify({'error': 'Location not found'}), 404
-        
         data = request.get_json()
-        backup_data = data.get('backup_data', {})
-        frequency = data.get('frequency')
-        time_str = data.get('time')
+        # Support both directory and command-based scheduled backups
+        backup_type = data.get('type', 'directory')  # default to directory for backward compatibility
         
-        if not frequency or not time_str:
-            return jsonify({'error': 'Frequency and time are required'}), 400
+        if backup_type == 'directory':
+            if not data or 'path' not in data or 'frequency' not in data or 'time' not in data:
+                return jsonify({'error': 'path, frequency, time are required for directory backup.'}), 400
+            
+            path = data['path']
+            if not os.path.exists(path):
+                return jsonify({'error': 'Path does not exist'}), 400
+                
+        elif backup_type == 'command':
+            if not data or 'command' not in data or 'filename' not in data or 'frequency' not in data or 'time' not in data:
+                return jsonify({'error': 'command, filename, frequency, time are required for command backup. key is optional for password store lookup'}), 400
+            
+            path = f"command:{data['command']}:{data['filename']}"  # Store command info as path for scheduling
+            
+        else:
+            return jsonify({'error': 'type must be either "directory" or "command"'}), 400
+        
+        frequency = data['frequency']
+        time_str = data['time']
+        
+        # Validate inputs
+        if frequency not in ['daily', 'weekly', 'monthly']:
+            return jsonify({'error': 'frequency must be daily, weekly, or monthly'}), 400
+        
+        # Get password from header and store it with the key
+        password, error_response, status_code = get_password_from_header()
+        if error_response:
+            return jsonify(error_response), status_code
         
         # Generate unique schedule ID
         schedule_id = str(uuid.uuid4())
+
+        # Store password in password store
+        save_password_to_store(schedule_id, password)
+        
+        # Load config and validate location
+        config = load_config()
+        if location_id not in config.get('locations', {}):
+            return jsonify({'error': 'Location not found'}), 404
+        
+        # Initialize schedules in config if not exists
+        if 'schedules' not in config:
+            config['schedules'] = {}
+        
         
         # Get cron expression
-        cron_expression = get_cron_expression(frequency, time_str)
+        try:
+            cron_expression = get_cron_expression(frequency, time_str)
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
         
-        # Create the scheduled job
-        if platform.system() == 'Windows':
-            path = backup_data.get('path')
-            if not path:
-                return jsonify({'error': 'Path is required for Windows scheduling'}), 400
-            success = create_windows_task(schedule_id, location_id, path, frequency, time_str)
-        else:
+        # Create platform-specific scheduled job
+        current_platform = platform.system().lower()
+        success = False
+        
+        # Prepare backup data object for cron job
+        if backup_type == 'directory':
+            backup_data = {'type': 'directory', 'path': data['path']}
+        else:  # command type
+            backup_data = {'type': 'command', 'command': data['command'], 'filename': data['filename']}
+        
+        if current_platform == 'linux':
             success = create_cron_job(schedule_id, location_id, backup_data, cron_expression)
-        
-        if success:
-            # Store schedule info in config
-            if 'schedules' not in config:
-                config['schedules'] = {}
+            if not success:
+                return jsonify({'error': 'Failed to create scheduled job'}), 500
             
-            schedule_info = {
-                'schedule_id': schedule_id,
+            # Store the cron_id in the schedule data
+            schedule_data = {
+                'id': schedule_id,
                 'location_id': location_id,
-                'backup_data': backup_data,
                 'frequency': frequency,
                 'time': time_str,
-                'cron_expression': cron_expression if platform.system() != 'Windows' else None
+                'created_at': datetime.now().isoformat(),
+                **backup_data
             }
-            
-            # Add type and path/command info for display
-            if backup_data.get('type') == 'command':
-                schedule_info['type'] = 'command'
-                schedule_info['command'] = backup_data.get('command')
-                schedule_info['filename'] = backup_data.get('filename')
-            else:
-                schedule_info['type'] = 'directory'
-                schedule_info['path'] = backup_data.get('path')
-            
-            config['schedules'][schedule_id] = schedule_info
-            save_config(config)
-            
-            return jsonify({
-                'message': 'Backup scheduled successfully',
-                'schedule_id': schedule_id
-            })
-        else:
-            return jsonify({'error': 'Failed to create scheduled backup'}), 500
-            
+        
+        # # Add path to location's paths if not already there (for directory backups)
+        # if backup_type == 'directory' and backup_data['path'] not in config['locations'][location_id]['paths']:
+        #     config['locations'][location_id]['paths'].append(backup_data['path'])
+        # elif backup_type == 'command':
+        #     # For command backups, add the snapshot path
+        #     snapshot_path = "/" + backup_data['filename']
+        #     if snapshot_path not in config['locations'][location_id]['paths']:
+        #         config['locations'][location_id]['paths'].append(snapshot_path)
+        
+        # Save schedule info with cron_id
+        schedule_data['platform'] = current_platform
+        config['schedules'][schedule_id] = schedule_data
+        
+        save_config(config)
+        
+        return jsonify({
+            'message': 'Backup scheduled successfully',
+            'schedule_id': schedule_id,
+            'schedule': config['schedules'][schedule_id]
+        })
+        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -239,64 +257,54 @@ def execute_cron_job(cron_id):
             return jsonify({'error': 'Could not extract location_id from URL'}), 400
         
         location_id = location_match.group(1)
-        
-        # Import backup function from app.py
-        from app import backup_location
-        
-        # Create mock request object with backup data
-        class MockRequest:
-            def __init__(self, json_data):
-                self.json = json_data
-        
-        mock_request = MockRequest(backup_data)
-        
-        # Call backup function directly to get streaming response
-        return backup_location(location_id, mock_request)
+
+        return extract_password_and_launch_backup(location_id, jsonify(backup_data))
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/locations/<location_id>/schedule', methods=['GET'])
+@app.route('/locations/<location_id>/backups/schedule', methods=['GET'])
 def list_backup_schedules(location_id):
     """List all scheduled backups for a location"""
     try:
         config = load_config()
-        if location_id not in config['locations']:
+        if location_id not in config.get('locations', {}):
             return jsonify({'error': 'Location not found'}), 404
         
+        # Filter schedules for this location
         schedules = []
-        if 'schedules' in config:
-            for schedule_id, schedule_info in config['schedules'].items():
-                if schedule_info['location_id'] == location_id:
-                    schedules.append(schedule_info)
+        for schedule_id, schedule_data in config.get('schedules', {}).items():
+            if schedule_data['location_id'] == location_id:
+                schedules.append({
+                    'schedule_id': schedule_id,
+                    **schedule_data
+                })
         
         return jsonify({'schedules': schedules})
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/locations/<location_id>/schedule/<schedule_id>', methods=['DELETE'])
+@app.route('/locations/<location_id>/backups/schedule/<schedule_id>', methods=['DELETE'])
 def delete_backup_schedule(location_id, schedule_id):
     """Delete a scheduled backup"""
     try:
         config = load_config()
-        if location_id not in config['locations']:
+        if location_id not in config.get('locations', {}):
             return jsonify({'error': 'Location not found'}), 404
         
-        if 'schedules' not in config or schedule_id not in config['schedules']:
+        if schedule_id not in config.get('schedules', {}):
             return jsonify({'error': 'Schedule not found'}), 404
         
         # Remove the scheduled job
-        success = remove_scheduled_job(schedule_id)
-        
-        if success:
-            # Remove from config
-            del config['schedules'][schedule_id]
-            save_config(config)
-            
-            return jsonify({'message': 'Scheduled backup deleted successfully'})
-        else:
+        if not remove_scheduled_job(schedule_id):
             return jsonify({'error': 'Failed to remove scheduled job'}), 500
-            
+        
+        # Remove from config
+        del config['schedules'][schedule_id]
+        save_config(config)
+        
+        return jsonify({'message': 'Schedule deleted successfully'})
+        
     except Exception as e:
         return jsonify({'error': str(e)}), 500

@@ -7,7 +7,8 @@ import zipfile
 import tarfile
 import shutil
 from flask import jsonify, request
-from main import app
+from app_factory import app
+from utils import load_config, save_config
 
 def get_latest_restic_version():
     """Get the latest restic version from GitHub API"""
@@ -129,33 +130,6 @@ def get_restic_version():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/restic/update', methods=['POST'])
-def update_restic():
-    """Update restic to the latest version"""
-    try:
-        current_version = get_current_restic_version()
-        latest_version = get_latest_restic_version()
-        
-        if not latest_version:
-            return jsonify({'error': 'Could not determine latest version'}), 500
-        
-        if current_version == latest_version:
-            return jsonify({'message': 'Restic is already up to date', 'version': current_version})
-        
-        success = download_and_install_restic(latest_version)
-        
-        if success:
-            new_version = get_current_restic_version()
-            return jsonify({
-                'message': 'Restic updated successfully',
-                'old_version': current_version,
-                'new_version': new_version
-            })
-        else:
-            return jsonify({'error': 'Failed to update restic'}), 500
-            
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 @app.route('/restic/install', methods=['POST'])
 def install_restic():
@@ -175,6 +149,51 @@ def install_restic():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/size', methods=['GET'])
+def get_directory_size():
+    """Get directory size information"""
+    path = request.args.get('path')
+    if not path:
+        return jsonify({'error': 'Path parameter is required'}), 400
+    
+    try:
+        import shutil
+        import os
+        
+        # Get total and used space for the path
+        if os.path.exists(path):
+            # Get directory size (used space)
+            if os.path.isdir(path):
+                total_size = 0
+                for dirpath, dirnames, filenames in os.walk(path):
+                    for filename in filenames:
+                        filepath = os.path.join(dirpath, filename)
+                        try:
+                            total_size += os.path.getsize(filepath)
+                        except (OSError, IOError):
+                            # Skip files that can't be accessed
+                            continue
+                used_space = total_size
+            else:
+                # Single file
+                used_space = os.path.getsize(path)
+            
+            # Get total disk space for the filesystem containing this path
+            total_space, used_disk, free_space = shutil.disk_usage(path)
+            
+            return jsonify({
+                'path': path,
+                'used': used_space,
+                'total': total_space,
+                'free': free_space,
+                'used_disk': used_disk
+            })
+        else:
+            return jsonify({'error': 'Path does not exist'}), 404
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
 def get_directory_size(path):
     """Get the size of a directory in bytes"""
     total_size = 0
@@ -225,5 +244,98 @@ def get_directory_size_endpoint():
             'size_formatted': format_bytes(size_bytes)
         })
         
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/config/update_restic', methods=['POST'])
+def update_restic():
+    """Update restic binary and version in configuration with cross-platform support"""
+    try:
+        import platform
+        import tempfile
+        
+        # Get root/admin password if provided
+        root_password = request.form.get('root_password', '')
+        
+        # Check if a file was uploaded
+        if 'file' in request.files:
+            file = request.files['file']
+            if file.filename == '':
+                return jsonify({'error': 'No file selected'}), 400
+            
+            # Detect platform
+            current_platform = platform.system().lower()
+            
+            # Save uploaded file to temporary location
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.exe' if current_platform == 'windows' else '') as temp_file:
+                file.save(temp_file.name)
+                temp_binary_path = temp_file.name
+            
+            try:
+                # Install using platform-specific installer
+                if current_platform == 'linux':
+                    if not root_password:
+                        return jsonify({'error': 'Root password required for Linux installation'}), 400
+                    
+                    # Import and use Linux installer
+                    import importlib.util
+                    spec = importlib.util.spec_from_file_location("linux_installer", "restic_installer_scripts/linux.py")
+                    linux_installer = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(linux_installer)
+                    
+                    result = linux_installer.install_restic_linux(temp_binary_path, root_password)
+                    
+                elif current_platform == 'windows':
+                    # Import and use Windows installer
+                    import importlib.util
+                    spec = importlib.util.spec_from_file_location("windows_installer", "restic_installer_scripts/windows.py")
+                    windows_installer = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(windows_installer)
+                    
+                    result = windows_installer.install_restic_windows(temp_binary_path, root_password if root_password else None)
+                    
+                else:
+                    return jsonify({'error': f'Unsupported platform: {current_platform}'}), 400
+                
+                # Check installation result
+                if not result['success']:
+                    return jsonify({'error': result['message']}), 500
+                    
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_binary_path)
+                except:
+                    pass
+        
+        # Get restic version (works for both platforms)
+        try:
+            # Try different command variations
+            commands = ['restic', 'restic.exe'] if platform.system().lower() == 'windows' else ['restic']
+            version_output = 'NA'
+            
+            for cmd in commands:
+                try:
+                    result = subprocess.run([cmd, 'version'], capture_output=True, text=True, timeout=10)
+                    if result.returncode == 0:
+                        version_output = result.stdout.strip()
+                        break
+                except FileNotFoundError:
+                    continue
+                    
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            version_output = 'NA'
+        
+        # Update config with version
+        config = load_config()
+        config['restic_version'] = version_output
+        save_config(config)
+        
+        return jsonify({
+            'message': 'Restic version updated successfully',
+            'restic_version': version_output,
+            'platform': platform.system().lower()
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
