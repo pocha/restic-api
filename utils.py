@@ -110,8 +110,7 @@ def extract_password_and_launch_backup(location_id, data):
                 save_config(config)
             # Split the command into arguments for proper execution
             command_args = backup_command.split()
-            cmd = ['restic', 'backup', '--stdin', '--stdin-from-command'] + command_args + [
-                   '--stdin-filename', filename, '--repo', repo_path, '--verbose']
+            cmd = ['restic', 'backup', '--stdin-filename', filename, '--repo', repo_path, '--stdin-from-command', '--'] + command_args
         else:
             return jsonify({'error': 'type must be either "directory" or "command"'}), 400
         
