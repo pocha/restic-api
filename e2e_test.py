@@ -506,7 +506,7 @@ def test_backup(type="directory"):
             command = 'cat /etc/hostname'
             filename = 'hostname.txt'
             take_backup_command(location_id, command, filename)
-            config_updated_with_recent_backup(location_id, command + ":/" + filename )
+            config_updated_with_recent_backup(location_id, "/" + filename )
        
         snapshot_id = check_snapshots_and_get_latest(location_id)
         
