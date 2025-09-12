@@ -1,9 +1,7 @@
+import {fetchConfig, fetchSize, addBackupLocation, listBackups, scheduleBackupAPICall, getScheduledBackups, getSnapshotData} from "./api_calls.js"
+
 // API Base URL
 const API_BASE = window.location.protocol + "//" +  window.location.host
-
-// Global variables
-let config = {}
-let locations = []
 
 // Utility functions
 function showLoading(elementId) {
@@ -19,101 +17,6 @@ function formatBytes(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
 }
 
-// API calls
-async function fetchConfig() {
-  try {
-    const response = await fetch(`${API_BASE}/config`)
-    if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.error || "Failed to fetch config")
-    }
-    config = await response.json()
-    return config
-  } catch (error) {
-    console.error("Error fetching config:", error)
-    return null
-  }
-}
-
-async function fetchSize(path) {
-  try {
-    const response = await fetch(`${API_BASE}/size?path=${encodeURIComponent(path)}`)
-    if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.error || "Failed to fetch size")
-    }
-    return await response.json()
-  } catch (error) {
-    console.error("Error fetching size:", error)
-    return null
-  }
-}
-
-async function addLocation(path, password) {
-  try {
-    const response = await fetch(`${API_BASE}/locations`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        location: path,
-        password: password,
-      }),
-    })
-    if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.error || "Failed to add location")
-    }
-    return await response.json()
-  } catch (error) {
-    console.error("Error adding location:", error)
-    throw error
-  }
-}
-
-async function startBackup(locationId, path, password) {
-  try {
-    const response = await fetch(`${API_BASE}/locations/${locationId}/backups`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Restic-Password": password,
-      },
-      body: JSON.stringify({ path: path }),
-    })
-
-    if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.error || "Failed to start backup")
-    }
-
-    // Use the modal to show backup progress
-    showDataInModal("Backup Progress", response.body, true)
-  } catch (error) {
-    console.error("Error starting backup:", error)
-    showDataInModal("Backup Error", error.message, false)
-    throw error
-  }
-}
-
-async function listBackups(locationId, path, password) {
-  try {
-    const response = await fetch(`${API_BASE}/locations/${locationId}/backups?path=${encodeURIComponent(path)}`, {
-      headers: {
-        "X-Restic-Password": password,
-      },
-    })
-    if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.error || "Failed to list backups")
-    }
-    return await response.json()
-  } catch (error) {
-    console.error("Error listing backups:", error)
-    throw error
-  }
-}
 
 let locationsArray = []
 async function fetchLocationsAndStoreLocally() {
@@ -127,100 +30,57 @@ async function fetchLocationsAndStoreLocally() {
   }))
 }
 
-// Scheduling functions
-async function scheduleBackup(locationId, path, password, frequency, time) {
-  const response = await fetch(`/locations/${locationId}/backups/schedule`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Password": password,
-    },
-    body: JSON.stringify({
-      path: path,
-      frequency: frequency,
-      time: time,
-    }),
-  })
 
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.error || "Failed to schedule backup")
-  }
-
-  const result = await response.json()
-  showDataInModal(
-    "Backup Scheduled",
-    `Backup scheduled successfully!\nSchedule ID: ${result.schedule_id}\nPath: ${path}\nFrequency: ${frequency}\nTime: ${time}`,
-    false
-  )
-
-  // Refresh the scheduled backups list
-  await loadScheduledBackups(locationId)
-
-  return result
-}
-
-async function loadScheduledBackups(locationId) {
-  try {
-    const response = await fetch(`/locations/${locationId}/backups/schedule`)
-    if (!response.ok) {
-      console.error("Failed to load scheduled backups")
-      return
-    }
-
-    const data = await response.json()
-    const schedules = data.schedules || []
-    displayScheduledBackups(schedules, locationId)
-  } catch (error) {
-    console.error("Error loading scheduled backups:", error)
-  }
-}
-
-function displayScheduledBackups(schedules, locationId) {
-  if (schedules.length === 0) {
-    return
-  }
+async function updateScheduledBackups() {
   const scheduledBackupsList = document.getElementById("scheduledBackupsList")
+  scheduledBackupsList.classList.add("hidden")
+  
   const scheduledBackupsContent = document.getElementById("scheduledBackupsContent")
+  scheduledBackupsContent.innerHTML = ""
 
-  scheduledBackupsList.classList.remove("hidden")
-  scheduledBackupsContent.innerHTML += schedules
-    .map(
-      (schedule) => `
-    <div class="bg-gray-50 p-4 rounded-lg border">
-      <div class="flex justify-between items-start">
-        <div class="flex-1">
-          <div class="text-sm font-medium text-gray-900">${schedule.path}</div>
-          <div class="text-sm text-gray-600 mt-1">
-            <span class="inline-block mr-4">Frequency: ${schedule.frequency}</span>
-            <span class="inline-block">Time: ${schedule.time}</span>
+  for (const location of locationsArray) {
+    const schedules = await getScheduledBackups(location.id)
+    if (schedules) {
+      scheduledBackupsList.classList.remove("hidden")
+      scheduledBackupsContent.innerHTML += schedules
+        .map(
+          (schedule) => `
+        <div class="bg-gray-50 p-4 rounded-lg border">
+          <div class="flex justify-between items-start">
+            <div class="flex-1">
+              <div class="text-sm font-medium text-gray-900">${schedule.type === 'command' ? `${schedule.command} -> /${schedule.filename}` : `${schedule.path}`}</div>
+              <div class="text-sm text-gray-600 mt-1">
+                <span class="inline-block mr-4">Frequency: ${schedule.frequency}</span>
+                <span class="inline-block">Time: ${schedule.time}</span>
+              </div>
+            </div>
+            <div class="flex space-x-2 ml-4">
+              <button onclick="executeScheduledBackup('${location.id}', '${schedule.schedule_id}', this)" 
+                      class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm transition-colors">
+                Backup Now
+              </button>
+              <button onclick="deleteScheduledBackup('${location.id}', '${schedule.schedule_id}', this)" 
+                      class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition-colors">
+                Delete
+              </button>
+            </div>
           </div>
         </div>
-        <div class="flex space-x-2 ml-4">
-          <button onclick="(async function(btn) { const password = prompt('Enter backup location password'); if (!password) { alert('Please enter the password in the form first'); return; } showLoadingOnButton(btn); try { await startBackup('${locationId}', '${schedule.path}', password); } catch (error) { console.error('Backup failed:', error); showDataInModal('Backup Error', error.message, false); } hideLoadingOnButton(btn); })(this)" 
-                  class="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-sm transition-colors">
-            Backup Now
-          </button>
-          <button onclick="deleteScheduledBackup('${locationId}', '${schedule.schedule_id}', this)" 
-                  class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition-colors">
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
-  `
-    )
-    .join("")
+      `
+        )
+        .join("")
+    }
+  }
 }
 
-async function deleteScheduledBackup(locationId, scheduleId, button) {
+window.deleteScheduledBackup = async function (locationId, scheduleId, button) {
   if (!confirm("Are you sure you want to delete this scheduled backup?")) {
     return
   }
 
   showLoadingOnButton(button)
   try {
-    const response = await fetch(`/locations/${locationId}/backups/schedule/${scheduleId}`, {
+    const response = await fetch(`/locations/${locationId}/schedule/${scheduleId}`, {
       method: "DELETE",
     })
 
@@ -230,7 +90,7 @@ async function deleteScheduledBackup(locationId, scheduleId, button) {
     }
 
     // Refresh the scheduled backups list
-    await resetScheduledBackupList()
+    await updateScheduledBackups()
     showDataInModal("Schedule Deleted", "Scheduled backup deleted successfully!", false)
   } catch (error) {
     console.error("Delete failed:", error)
@@ -239,8 +99,36 @@ async function deleteScheduledBackup(locationId, scheduleId, button) {
   hideLoadingOnButton(button)
 }
 
+
+window.executeScheduledBackup = async function (locationId, scheduleId, button) {
+  showLoadingOnButton(button);
+  try {
+    const response = await fetch(`/locations/${locationId}/schedule/${scheduleId}/execute-backup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to execute scheduled backup');
+    }
+
+    // Handle the streaming response
+    showDataInModal('Backup Progress', response.body, true);
+    await fetchLocationsAndStoreLocally() //need this to populate the Restore Directory dropdown
+    
+  } catch (error) {
+    console.error('Scheduled backup execution failed:', error);
+    showDataInModal('Backup Error', error.message, false);
+  }
+  hideLoadingOnButton(button);
+}
+
+
 // UI functions
-async function loadLocations() {
+async function populateBackupLocationsAtTheTop() {
   showLoading("locationsList")
 
   if (locationsArray.length == 0) {
@@ -278,7 +166,7 @@ async function loadLocations() {
   document.getElementById("locationsList").innerHTML = html
 }
 
-function updateLocationDropdowns() {
+function updateBackupLocationsInDropDowns() {
   const backupSelect = document.getElementById("backupLocation")
   const restoreSelect = document.getElementById("restoreLocation")
 
@@ -293,7 +181,7 @@ function updateLocationDropdowns() {
   })
 }
 
-function updateDirectoryDropdown(locationId) {
+function updateBackedUpLocationsInRestoreDropdown(locationId) {
   const restoreDirectorySelect = document.getElementById("restoreDirectory")
   restoreDirectorySelect.innerHTML = '<option value="">Select a directory...</option>'
 
@@ -418,7 +306,7 @@ async function handleSSEInModal(responseBody, modalContent) {
 }
 
 // Button handler functions
-async function showBackupFiles(locationId, backupId, index, button) {
+window.showBackupFiles = async function (locationId, backupId, index, button) {
   const password = document.getElementById("restorePassword").value
   if (!password) {
     alert("Please enter the restore password")
@@ -426,30 +314,20 @@ async function showBackupFiles(locationId, backupId, index, button) {
   }
 
   showLoadingOnButton(button)
-  try {
-    const response = await fetch(`${API_BASE}/locations/${locationId}/backups/${backupId}`, {
-      headers: {
-        "X-Restic-Password": password,
-      },
-    })
-    if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.error || "Failed to fetch backup files")
-    }
+  const data = await getSnapshotData(locationId,backupId,password)
 
-    const data = await response.json()
+  if(data) {
     // Format files as "<file path>, size"
     let formattedFiles = data
       .map((file) => `${file.path}, ${typeof file.size === "number" ? formatBytes(file.size) : "-"}`)
       .join("\n")
     showDataInModal("Files in backup:", formattedFiles)
-  } catch (error) {
-    alert(`Error loading files: ${error.message}`)
   }
+  
   hideLoadingOnButton(button)
 }
 
-async function showBackupLogs(locationId, backupId, index, button) {
+window.showBackupLogs = async function (locationId, backupId, index, button) {
   const password = document.getElementById("restorePassword").value
   if (!password) {
     alert("Please enter the restore password")
@@ -457,27 +335,18 @@ async function showBackupLogs(locationId, backupId, index, button) {
   }
 
   showLoadingOnButton(button)
-  try {
-    const response = await fetch(`${API_BASE}/locations/${locationId}/backups/${backupId}?is_logs=1`, {
-      headers: {
-        "X-Restic-Password": password,
-      },
-    })
-    if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.error || "Failed to fetch backup logs")
-    }
-    const data = await response.json()
+  
+  const data = await getSnapshotData(locationId, backupId, password, true)
+  if(data) {
     // Display logs as plain text - backend returns {logs: "content"}
     const logContent = data.logs || "No logs available"
     showDataInModal("Backup Logs", logContent)
-  } catch (error) {
-    alert(`Error loading logs: ${error.message}`)
   }
+
   hideLoadingOnButton(button)
 }
 
-async function restoreBackupAction(locationId, backupId, index, button) {
+window.restoreBackupAction = async function (locationId, backupId, index, button) {
   const password = document.getElementById("restorePassword").value
   if (!password) {
     alert("Please enter the restore password")
@@ -516,18 +385,7 @@ async function restoreBackupAction(locationId, backupId, index, button) {
   hideLoadingOnButton(button)
 }
 
-async function resetScheduledBackupList() {
-  const scheduledBackupsList = document.getElementById("scheduledBackupsList")
-  scheduledBackupsList.classList.add("hidden")
-  
-  const scheduledBackupsContent = document.getElementById("scheduledBackupsContent")
-  scheduledBackupsContent.innerHTML = ""
 
-
-  for (const location of locationsArray) {
-    loadScheduledBackups(location.id)
-  }
-}
 //-----------------------------------------
 // DomContentLoaded & bindings below
 // Event listeners
@@ -535,13 +393,10 @@ async function resetScheduledBackupList() {
 document.addEventListener("DOMContentLoaded", async function () {
   await fetchLocationsAndStoreLocally()
   // Load initial data
-  loadLocations()
-
-  resetScheduledBackupList()
-
-  // Update dropdowns
-  updateLocationDropdowns()
-
+  populateBackupLocationsAtTheTop()
+  updateBackupLocationsInDropDowns()
+  updateScheduledBackups()
+  
   // Add Location Form
   document.getElementById("addLocationForm").addEventListener("submit", async function (e) {
     e.preventDefault()
@@ -557,7 +412,7 @@ document.addEventListener("DOMContentLoaded", async function () {
 
     showLoadingOnButton(e.submitter)
     try {
-      await addLocation(path, password)
+      await addBackupLocation(path, password)
       alert("Location added successfully!")
       location.reload() // Refresh page as requested
     } catch (error) {
@@ -590,20 +445,64 @@ document.addEventListener("DOMContentLoaded", async function () {
 
     const formData = new FormData(e.target)
     const locationId = formData.get("location")
-    const directory = formData.get("path")
+    const backupType = formData.get("backupType")
     const password = formData.get("password")
     const frequency = formData.get("frequency")
     const time = formData.get("time")
 
-    if (!locationId || !directory || !password || !frequency || !time) {
-      alert("Please fill in all fields including password, frequency, and time")
+    // Basic validation
+    if (!locationId || !backupType || !password || !frequency || !time) {
+      alert("Please fill in all required fields including backup type, password, frequency, and time")
+      hideLoadingOnButton(e.submitter)
+      return
+    }
+
+    let backupData = {}
+    
+    if (backupType === "directory") {
+      const directory = formData.get("path")
+      if (!directory) {
+        alert("Please specify the directory to backup")
+        hideLoadingOnButton(e.submitter)
+        return
+      }
+      backupData = { type: "directory", path: directory }
+    } else if (backupType === "command") {
+      const command = formData.get("command")
+      const filename = formData.get("filename")
+      if (!command || !filename) {
+        alert("Please specify both command and filename for command backup")
+        hideLoadingOnButton(e.submitter)
+        return
+      }
+      backupData = { type: "command", command: command, filename: filename }
+    } else {
+      alert("Invalid backup type selected")
       hideLoadingOnButton(e.submitter)
       return
     }
 
     showLoadingOnButton(e.submitter)
     try {
-      await scheduleBackup(locationId, directory, password, frequency, time)
+      const result = await scheduleBackupAPICall(locationId, backupData, password, frequency, time)
+  
+      // Create appropriate success message based on backup type
+      let backupInfo = ""
+      if (backupData.type === "directory") {
+        backupInfo = `Path: ${backupData.path}`
+      } else if (backupData.type === "command") {
+        backupInfo = `Command: ${backupData.command}\nFilename: ${backupData.filename}`
+      }
+      
+      showDataInModal(
+        "Backup Scheduled",
+        `Backup scheduled successfully!\nSchedule ID: ${result.schedule_id}\nType: ${backupData.type}\n${backupInfo}\nFrequency: ${frequency}\nTime: ${time}`,
+        false
+      )
+
+      // Refresh the scheduled backups list
+      await updateScheduledBackups()
+
     } catch (error) {
       console.error("Backup scheduling failed:", error)
       showDataInModal("Backup Scheduling Error", error.message, false)
@@ -615,7 +514,7 @@ document.addEventListener("DOMContentLoaded", async function () {
   document.getElementById("restoreLocation").addEventListener("change", function () {
     const locationId = this.value
     if (locationId) {
-      updateDirectoryDropdown(locationId)
+      updateBackedUpLocationsInRestoreDropdown(locationId)
     } else {
       document.getElementById("restoreDirectory").innerHTML = '<option value="">Select a directory...</option>'
     }

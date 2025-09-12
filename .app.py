@@ -27,7 +27,8 @@ def serve_static(filename):
     return "File not found", 404
     return "File not found", 404
 
-CONFIG_FILE = os.path.expanduser('~/config.json')
+CONFIG_FILE = os.path.expanduser('~/.restic-api/config.json')
+PASSWORD_STORE_FILE = os.path.expanduser('~/.restic-api/password-store')
 
 # Helper Functions
 def load_config():
@@ -52,6 +53,33 @@ def save_config(config):
     """Save configuration to config.json"""
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=2)
+
+def load_password_store():
+    """Load password store from file"""
+    if os.path.exists(PASSWORD_STORE_FILE):
+        passwords = {}
+        with open(PASSWORD_STORE_FILE, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if '=' in line and not line.startswith('#'):
+                    key, password = line.split('=', 1)
+                    passwords[key.strip()] = password.strip()
+        return passwords
+    return {}
+
+def save_password_to_store(key, password):
+    """Save password to password store"""
+    passwords = load_password_store()
+    passwords[key] = password
+    
+    with open(PASSWORD_STORE_FILE, 'w') as f:
+        for k, p in passwords.items():
+            f.write(f"{k}={p}\n")
+
+def get_password_from_key(key):
+    """Get password from password store using key"""
+    passwords = load_password_store()
+    return passwords.get(key)
 
 def get_password_from_header():
     """Extract restic password from request header"""
@@ -309,7 +337,7 @@ def generate_backup_stream(cmd, env_vars, location_id):
         
         # Save output to file if snapshot was created
         if snapshot_id and process.returncode == 0:
-            output_file = os.path.expanduser(f'~/backup_logs/{snapshot_id}.txt')
+            output_file = os.path.expanduser(f'~/.restic-api/backup_logs/{snapshot_id}.txt')
             os.makedirs(os.path.dirname(output_file), exist_ok=True)
             with open(output_file, 'w') as f:
                 f.writelines(output_lines)
@@ -326,29 +354,65 @@ def generate_backup_stream(cmd, env_vars, location_id):
 def create_backup(location_id):
     """Create a new backup with streaming output"""
     try:
-        password, error_response, status_code = get_password_from_header()
-        if error_response:
-            return jsonify(error_response), status_code
+        # Check if key parameter is provided for password lookup
+        data = request.get_json() or {}
+        key = data.get('key')
+        
+        if key:
+            # Get password from password store using key
+            password = get_password_from_key(key)
+            if not password:
+                return jsonify({'error': f'Password key "{key}" not found in password store'}), 400
+        else:
+            # Use traditional header-based password
+            password, error_response, status_code = get_password_from_header()
+            if error_response:
+                return jsonify(error_response), status_code
         
         config = load_config()
         if location_id not in config.get('locations', {}):
             return jsonify({'error': 'Location not found'}), 404
         
-        data = request.get_json()
-        if not data or 'path' not in data:
-            return jsonify({'error': 'path parameter is required'}), 400
+        # Support both directory and command-based backups
+        backup_type = data.get('type', 'directory')  # default to directory for backward compatibility
         
-        repo_path = config['locations'][location_id]['repo_path']
-        backup_path = data['path']
-        if not os.path.exists(backup_path):
-            return jsonify({'error': 'backup_path provided does not exist'}), 400
+        if backup_type == 'directory':
+            if not data or 'path' not in data:
+                return jsonify({'error': 'path parameter is required for directory backup'}), 400
+            
+            repo_path = config['locations'][location_id]['repo_path']
+            backup_path = data['path']
+            if not os.path.exists(backup_path):
+                return jsonify({'error': 'backup_path provided does not exist'}), 400
+            
+            # Add backup path to location's paths list if not already present
+            if backup_path not in config['locations'][location_id]['paths']:
+                config['locations'][location_id]['paths'].append(backup_path)
+                save_config(config)
+            
+            cmd = ['restic', 'backup', backup_path, '--repo', repo_path, '--verbose']
+            
+        elif backup_type == 'command':
+            if not data or 'command' not in data or 'filename' not in data:
+                return jsonify({'error': 'command and filename parameters are required for command backup'}), 400
+            
+            repo_path = config['locations'][location_id]['repo_path']
+            backup_command = data['command']
+            filename = data['filename']
+            
+
+            # Add command backup path to location's paths list for restore functionality
+            command_backup_path = backup_command + ":/" + filename
+            if command_backup_path not in config['locations'][location_id]['paths']:
+                config['locations'][location_id]['paths'].append(command_backup_path)
+                save_config(config)
+            # Split the command into arguments for proper execution
+            command_args = backup_command.split()
+            cmd = ['restic', 'backup', '--stdin', '--stdin-from-command'] + command_args + [
+                   '--stdin-filename', filename, '--repo', repo_path, '--verbose']
+        else:
+            return jsonify({'error': 'type must be either "directory" or "command"'}), 400
         
-        # Add backup path to location's paths list if not already present
-        if backup_path not in config['locations'][location_id]['paths']:
-            config['locations'][location_id]['paths'].append(backup_path)
-            save_config(config)
-        
-        cmd = ['restic', 'backup', backup_path, '--repo', repo_path, '--verbose']
         env_vars = {'RESTIC_PASSWORD': password}
         
         def event_stream():
@@ -377,7 +441,7 @@ def list_backup_contents(location_id, backup_id):
         
         if is_logs:
             # Return backup logs
-            log_file = os.path.expanduser(f'~/backup_logs/{backup_id}.txt')
+            log_file = os.path.expanduser(f'~/.restic-api/backup_logs/{backup_id}.txt')
             if os.path.exists(log_file):
                 with open(log_file, 'r') as f:
                     logs = f.read()
@@ -486,14 +550,21 @@ def get_cron_expression(frequency, time_str):
     except:
         raise ValueError("Invalid time format")
 
-def create_cron_job(schedule_id, location_id, path, cron_expression):
+def create_cron_job(schedule_id, location_id, backup_data, cron_expression):
     """Create cron job for Linux"""
+    import uuid
     try:
         from crontab import CronTab
         cron = CronTab(user=True)
         
+        
         # Create command to run backup
-        backup_cmd = f"curl -X POST -H 'X-Restic-Password: PLACEHOLDER' -H 'Content-Type: application/json' -d '{{\"path\": \"{path}\"}}' http://localhost:5000/locations/{location_id}/backups"
+        if backup_data.get('type') == 'command':
+            # For command-based backups
+            backup_cmd = f"curl -X POST -H 'Content-Type: application/json' -d '{{\"type\": \"command\", \"command\": \"{backup_data['command']}\", \"filename\": \"{backup_data['filename']}\", \"key\": \"{schedule_id}\"}}' http://localhost:5000/locations/{location_id}/backups"
+        else:
+            # For directory-based backups
+            backup_cmd = f"curl -X POST -H 'Content-Type: application/json' -d '{{\"path\": \"{backup_data['path']}\", \"key\": \"{key}\"}}' http://localhost:5000/locations/{location_id}/backups"
         
         job = cron.new(command=backup_cmd, comment=f"restic_schedule_{schedule_id}")
         job.setall(cron_expression)
@@ -571,10 +642,26 @@ def create_backup_schedule(location_id):
     """Create a scheduled backup"""
     try:
         data = request.get_json()
-        if not data or 'path' not in data or 'frequency' not in data or 'time' not in data:
-            return jsonify({'error': 'path, frequency, and time are required'}), 400
+        # Support both directory and command-based scheduled backups
+        backup_type = data.get('type', 'directory')  # default to directory for backward compatibility
         
-        path = data['path']
+        if backup_type == 'directory':
+            if not data or 'path' not in data or 'frequency' not in data or 'time' not in data:
+                return jsonify({'error': 'path, frequency, time are required for directory backup.'}), 400
+            
+            path = data['path']
+            if not os.path.exists(path):
+                return jsonify({'error': 'Path does not exist'}), 400
+                
+        elif backup_type == 'command':
+            if not data or 'command' not in data or 'filename' not in data or 'frequency' not in data or 'time' not in data:
+                return jsonify({'error': 'command, filename, frequency, time are required for command backup. key is optional for password store lookup'}), 400
+            
+            path = f"command:{data['command']}:{data['filename']}"  # Store command info as path for scheduling
+            
+        else:
+            return jsonify({'error': 'type must be either "directory" or "command"'}), 400
+        
         frequency = data['frequency']
         time_str = data['time']
         
@@ -582,8 +669,16 @@ def create_backup_schedule(location_id):
         if frequency not in ['daily', 'weekly', 'monthly']:
             return jsonify({'error': 'frequency must be daily, weekly, or monthly'}), 400
         
-        if not os.path.exists(path):
-            return jsonify({'error': 'Path does not exist'}), 400
+        # Get password from header and store it with the key
+        password, error_response, status_code = get_password_from_header()
+        if error_response:
+            return jsonify(error_response), status_code
+        
+        # Generate unique schedule ID
+        schedule_id = str(uuid.uuid4())
+
+        # Store password in password store
+        save_password_to_store(schedule_id, password)
         
         # Load config and validate location
         config = load_config()
@@ -594,8 +689,6 @@ def create_backup_schedule(location_id):
         if 'schedules' not in config:
             config['schedules'] = {}
         
-        # Generate unique schedule ID
-        schedule_id = str(uuid.uuid4())
         
         # Get cron expression
         try:
@@ -607,29 +700,39 @@ def create_backup_schedule(location_id):
         current_platform = platform.system().lower()
         success = False
         
+        # Prepare backup data object for cron job
+        if backup_type == 'directory':
+            backup_data = {'type': 'directory', 'path': data['path']}
+        else:  # command type
+            backup_data = {'type': 'command', 'command': data['command'], 'filename': data['filename']}
+        
         if current_platform == 'linux':
-            success = create_cron_job(schedule_id, location_id, path, cron_expression)
-        elif current_platform == 'windows':
-            success = create_windows_task(schedule_id, location_id, path, frequency, time_str)
-        else:
-            return jsonify({'error': f'Unsupported platform: {current_platform}'}), 400
+            success = create_cron_job(schedule_id, location_id, backup_data, cron_expression)
+            if not success:
+                return jsonify({'error': 'Failed to create scheduled job'}), 500
+            
+            # Store the cron_id in the schedule data
+            schedule_data = {
+                'id': schedule_id,
+                'location_id': location_id,
+                'frequency': frequency,
+                'time': time_str,
+                'created_at': datetime.now().isoformat(),
+                **backup_data
+            }
         
-        if not success:
-            return jsonify({'error': 'Failed to create scheduled job'}), 500
+        # Add path to location's paths if not already there (for directory backups)
+        if backup_type == 'directory' and backup_data['path'] not in config['locations'][location_id]['paths']:
+            config['locations'][location_id]['paths'].append(backup_data['path'])
+        elif backup_type == 'command':
+            # For command backups, add the snapshot path
+            snapshot_path = "/" + backup_data['filename']
+            if snapshot_path not in config['locations'][location_id]['paths']:
+                config['locations'][location_id]['paths'].append(snapshot_path)
         
-        # Add path to location's paths if not already there
-        if path not in config['locations'][location_id]['paths']:
-            config['locations'][location_id]['paths'].append(path)
-        
-        # Save schedule info
-        config['schedules'][schedule_id] = {
-            'location_id': location_id,
-            'path': path,
-            'frequency': frequency,
-            'time': time_str,
-            'created_at': datetime.now().isoformat(),
-            'platform': current_platform
-        }
+        # Save schedule info with cron_id
+        schedule_data['platform'] = current_platform
+        config['schedules'][schedule_id] = schedule_data
         
         save_config(config)
         
@@ -641,6 +744,49 @@ def create_backup_schedule(location_id):
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/locations/<location_id>/execute-cron/<cron_id>', methods=['POST'])
+def execute_cron_job(cron_id):
+    """Execute a scheduled cron job by its ID"""
+    try:
+        from crontab import CronTab
+        cron = CronTab(user=True)
+         
+        target_command = None
+        jobs = cron.find_comment(f"restic_schedule_{cron_id}")
+        for job in jobs:
+            target_command = job.command
+            break
+        
+        if not target_command:
+            return jsonify({'error': 'No backup job scheduled for the cron_id'}), 400
+
+        # Parse the curl command to extract parameters
+        import re
+        import json
+        # Extract JSON data from curl command
+        data_match = re.search(r"-d\s+'([^']+)' ([^']+)", target_command)
+        if not data_match:
+            return jsonify({'error': 'Could not extract backup data from cron command'}), 400
+        
+        
+        backup_data = json.loads(data_match.group(1))
+        if not backup_data:
+            return jsonify({'error': 'Invalid JSON in cron command'}), 400
+        
+        url = data_match.group(2)
+        if not url:
+            return jsonify({'error': 'Could not extract url from cron'})
+        
+        import requests 
+        response = requests.post(url, backup_data)
+
+        return response.json()
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/locations/<location_id>/backups/schedule', methods=['GET'])
 def list_backup_schedules(location_id):
@@ -742,7 +888,8 @@ def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    # Create backup logs directory
-    os.makedirs(os.path.expanduser('~/backup_logs'), exist_ok=True)
+    # Create .restic-api directory structure
+    os.makedirs(os.path.expanduser('~/.restic-api'), exist_ok=True)
+    os.makedirs(os.path.expanduser('~/.restic-api/backup_logs'), exist_ok=True)
     
     app.run(host='0.0.0.0', port=5000, debug=True)
