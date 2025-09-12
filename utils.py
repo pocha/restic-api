@@ -104,10 +104,11 @@ def extract_password_and_launch_backup(location_id, data):
             
 
             # Add command backup path to location's paths list for restore functionality
-            command_backup_path = backup_command + ":/" + filename
-            if command_backup_path not in config['locations'][location_id]['paths']:
-                config['locations'][location_id]['paths'].append(command_backup_path)
+            path = "/" + filename
+            if path not in config['locations'][location_id]['paths']:
+                config['locations'][location_id]['paths'].append(path)
                 save_config(config)
+                
             # Split the command into arguments for proper execution
             command_args = backup_command.split()
             cmd = ['restic', 'backup', '--stdin-filename', filename, '--repo', repo_path, '--stdin-from-command', '--'] + command_args
