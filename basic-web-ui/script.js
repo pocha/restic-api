@@ -48,7 +48,7 @@ async function updateScheduledBackups() {
         <div class="bg-gray-50 p-4 rounded-lg border">
           <div class="flex justify-between items-start">
             <div class="flex-1">
-              <div class="text-sm font-medium text-gray-900">${schedule.type === 'command' ? `Command: ${schedule.command}` : `Path: ${schedule.path}`}</div>
+              <div class="text-sm font-medium text-gray-900">${schedule.type === 'command' ? `${schedule.command} -> /${schedule.filename}` : `${schedule.path}`}</div>
               <div class="text-sm text-gray-600 mt-1">
                 <span class="inline-block mr-4">Frequency: ${schedule.frequency}</span>
                 <span class="inline-block">Time: ${schedule.time}</span>
@@ -117,6 +117,7 @@ window.executeScheduledBackup = async function (locationId, scheduleId, button) 
 
     // Handle the streaming response
     showDataInModal('Backup Progress', response.body, true);
+    await fetchLocationsAndStoreLocally() //need this to populate the Restore Directory dropdown
     
   } catch (error) {
     console.error('Scheduled backup execution failed:', error);
@@ -127,7 +128,7 @@ window.executeScheduledBackup = async function (locationId, scheduleId, button) 
 
 
 // UI functions
-async function populateBackupLocations() {
+async function populateBackupLocationsAtTheTop() {
   showLoading("locationsList")
 
   if (locationsArray.length == 0) {
@@ -392,13 +393,10 @@ window.restoreBackupAction = async function (locationId, backupId, index, button
 document.addEventListener("DOMContentLoaded", async function () {
   await fetchLocationsAndStoreLocally()
   // Load initial data
-  populateBackupLocations()
-
-  updateScheduledBackups()
-
-  // Update dropdowns
+  populateBackupLocationsAtTheTop()
   updateBackupLocationsInDropDowns()
-
+  updateScheduledBackups()
+  
   // Add Location Form
   document.getElementById("addLocationForm").addEventListener("submit", async function (e) {
     e.preventDefault()
