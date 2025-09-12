@@ -132,7 +132,7 @@ export async function getSnapshotData(locationId, backupId, password, isLogs=fal
     try {
     let url = `${API_BASE}/locations/${locationId}/backups/${backupId}`
     if (isLogs) {
-        url += "?isLogs=1"
+        url += "?is_logs=1"
     }
     const response = await fetch( url, {
       headers: {
