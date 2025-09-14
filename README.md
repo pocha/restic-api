@@ -12,6 +12,8 @@ The project is built using [nonbios.ai](https://nonbios.ai) . I wrote very minim
 
 ## Quick Start
 
+## For developers:
+
 ```bash
 git clone git@github.com:pocha/restic-api.git
 cd restic-api
@@ -20,6 +22,10 @@ source venv/bin/activate
 pip install -r requirements.txt
 python app.py
 ```
+
+## Quick Install (for non developers):
+
+Navigate to `install` directory & follow the steps in the README there 
 
 Server runs on `http://localhost:5000`
 

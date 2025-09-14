@@ -1,0 +1,15 @@
+{
+  "name": "basic-web-ui",
+  "version": "1.0.0",
+  "main": "backup-scheduling.spec.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
+  }
+}
