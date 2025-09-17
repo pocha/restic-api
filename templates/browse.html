@@ -59,7 +59,7 @@
                             <!-- Name -->
                             <div class="flex-1 min-w-0">
                                 {% if item.is_directory %}
-                                    <a href="{{ item.clickable_path }}" class="text-blue-600 hover:text-blue-800 font-medium text-left truncate block w-full">
+                                    <a href="{{ url_for('browse_restored_content', restore_path=item.clickable_path) }}" class="text-blue-600 hover:text-blue-800 font-medium text-left truncate block w-full">
                                         {{ item.name }}
                                     </a>
                                 {% else %}
