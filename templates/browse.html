@@ -19,14 +19,22 @@
             <p class="text-sm text-gray-600 break-all">{{ path }}</p>
         </div>
 
-        <!-- Navigation -->
-        {% if path != '/' %}
+        <!-- Breadcrumb Navigation -->
         <div class="mb-4">
-            <button onclick="goUp()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                ← Go Up
-            </button>
+            <nav class="flex items-center space-x-2 text-sm">
+                {% for crumb in breadcrumbs %}
+                    {% if not loop.last %}
+                        <a href="{{ url_for('browse_restored_content', restore_path=crumb.path) }}" 
+                           class="text-blue-600 hover:text-blue-800 hover:underline font-medium">
+                            {{ crumb.name }}
+                        </a>
+                        <span class="text-gray-400">/</span>
+                    {% else %}
+                        <span class="text-gray-700 font-medium">{{ crumb.name }}</span>
+                    {% endif %}
+                {% endfor %}
+            </nav>
         </div>
-        {% endif %}
 
         <!-- Content Grid -->
         <div class="bg-white rounded-lg shadow-sm border overflow-hidden">

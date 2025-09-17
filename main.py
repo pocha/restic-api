@@ -26,21 +26,55 @@ def serve_static(filename):
 
 @app.route('/browse/<path:restore_path>')
 def browse_restored_content(restore_path):
-    """Browse restored directory content with validation"""
+    """Browse restored directory content with recursive navigation and validation"""
     try:
         # Load config to validate restored paths
         config = load_config()
         restored_paths = config.get('restored_paths', [])
         
-        # Validate that the requested path is in our restored paths
+        # Normalize the requested path
         restore_path = '/' + restore_path if not restore_path.startswith('/') else restore_path
+        restore_path = os.path.normpath(restore_path)
         
-        if restore_path not in restored_paths:
+        # Validate that the requested path is within one of our restored directories
+        is_valid_path = False
+        base_restore_path = None
+        
+        for restored_path in restored_paths:
+            restored_path = os.path.normpath(restored_path)
+            # Check if the requested path is the restored path itself or a subdirectory
+            if restore_path == restored_path or restore_path.startswith(restored_path + os.sep):
+                is_valid_path = True
+                base_restore_path = restored_path
+                break
+        
+        if not is_valid_path:
             return jsonify({'error': 'Access denied. Path not found in restored directories.'}), 403
         
         # Check if directory exists
         if not os.path.exists(restore_path) or not os.path.isdir(restore_path):
             return jsonify({'error': 'Directory not found or inaccessible.'}), 404
+        
+        # Generate breadcrumb navigation
+        breadcrumbs = []
+        current_path = restore_path
+        
+        # Build breadcrumbs from current path back to base restore path
+        while current_path and current_path != base_restore_path:
+            parent_path = os.path.dirname(current_path)
+            if parent_path == current_path:  # Reached root
+                break
+            breadcrumbs.insert(0, {
+                'name': os.path.basename(current_path),
+                'path': current_path
+            })
+            current_path = parent_path
+        
+        # Add the base restore directory as the root breadcrumb
+        breadcrumbs.insert(0, {
+            'name': os.path.basename(base_restore_path) or 'Root',
+            'path': base_restore_path
+        })
         
         # Get directory contents
         try:
@@ -60,7 +94,8 @@ def browse_restored_content(restore_path):
                 items.append({
                     'name': item,
                     'is_directory': is_dir,
-                    'size': size
+                    'size': size,
+                    'path': item_path
                 })
             
             # Helper function for formatting file sizes
@@ -75,8 +110,10 @@ def browse_restored_content(restore_path):
                 return f"{s} {size_names[i]}"
             
             return render_template('browse.html', 
-                                 path=restore_path, 
+                                 path=restore_path,
+                                 base_path=base_restore_path,
                                  items=items,
+                                 breadcrumbs=breadcrumbs,
                                  format_size=format_size)
             
         except PermissionError:
