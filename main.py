@@ -40,29 +40,34 @@ def browse_restored_content(restore_path):
         # and restrict access to only the first directory inside restore_path
         is_valid_path = False
         base_restore_path = None
-        allowed_browse_path = None
+        matching_config_path = None
         
-        for restored_path in restored_paths:
-            restored_path = os.path.normpath(restored_path)
+        for path_in_config in restored_paths:
+            if restore_path.startswith(path_in_config):
+                is_valid_path = True
+                matching_config_path = path_in_config
+                base_restore_path = "/".join(matching_config_path.split("/")[:-1])
+                break
+            #valid_path = os.path.normpath(valid_path)
             
-            # Find the first directory inside the restored path
-            if os.path.exists(restored_path) and os.path.isdir(restored_path):
-                try:
-                    items_in_restore = [item for item in os.listdir(restored_path) 
-                                      if os.path.isdir(os.path.join(restored_path, item))]
-                    if items_in_restore:
-                        # Use the first directory as the allowed browse path
-                        first_dir = sorted(items_in_restore)[0]
-                        allowed_browse_path = os.path.join(restored_path, first_dir)
+            # # Find the first directory inside the restored path
+            # if os.path.exists(valid_path) and os.path.isdir(valid_path):
+            #     try:
+            #         items_in_restore = [item for item in os.listdir(valid_path) 
+            #                           if os.path.isdir(os.path.join(valid_path, item))]
+            #         if items_in_restore:
+            #             # Use the first directory as the allowed browse path
+            #             first_dir = sorted(items_in_restore)[0]
+            #             allowed_browse_path = os.path.join(valid_path, first_dir)
                         
-                        # Check if the requested path is within this allowed directory
-                        if (restore_path == allowed_browse_path or 
-                            restore_path.startswith(allowed_browse_path + os.sep)):
-                            is_valid_path = True
-                            base_restore_path = restored_path
-                            break
-                except (PermissionError, OSError):
-                    continue
+            #             # Check if the requested path is within this allowed directory
+            #             if (path == allowed_browse_path or 
+            #                 path.startswith(allowed_browse_path + os.sep)):
+            #                 is_valid_path = True
+            #                 base_restore_path = valid_path
+            #                 break
+            #     except (PermissionError, OSError):
+            #         continue
         
         if not is_valid_path:
             return jsonify({'error': 'Access denied. Path not found in allowed directories.'}), 403
@@ -76,7 +81,7 @@ def browse_restored_content(restore_path):
         current_path = restore_path
         
         # Build breadcrumbs from current path back to allowed browse path
-        while current_path and current_path != allowed_browse_path:
+        while current_path and current_path != matching_config_path:
             parent_path = os.path.dirname(current_path)
             if parent_path == current_path:  # Reached root
                 break
@@ -89,9 +94,9 @@ def browse_restored_content(restore_path):
             current_path = parent_path
         
         # Add the allowed browse directory as the root breadcrumb
-        allowed_relative_path = allowed_browse_path.lstrip('/')
+        allowed_relative_path = matching_config_path.lstrip('/')
         breadcrumbs.insert(0, {
-            'name': os.path.basename(allowed_browse_path),
+            'name': os.path.basename(matching_config_path),
             'path': allowed_relative_path
         })
         
