@@ -174,17 +174,73 @@ def list_backup_contents(location_id, backup_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     
-def generate_restore_stream(cmd, env_vars):
-    """Generator function for streaming restore output"""
+def count_files_in_snapshot(snapshot_id, repo_path, password):
+    """Count total files in a snapshot for progress calculation"""
+    try:
+        cmd = ['restic', 'ls', snapshot_id, '--repo', repo_path]
+        env_vars = {'RESTIC_PASSWORD': password}
+        process = execute_restic_command(cmd, env_vars)
+        
+        if process.returncode == 0:
+            # Count lines in output (each line is a file/directory)
+            stdout = process.stdout.strip().split('\n')
+            file_count = len([line for line in stdout if line.strip()])
+            
+            top_level_dir = None
+            for line in stdout:
+                if line.strip():
+                    top_level_dir = line.split("/")[1]
+                    break
+            return [file_count, top_level_dir]
+        return 0
+    except Exception:
+        return 0
+
+def generate_restore_stream(cmd, env_vars, target_path, total_files=0, top_level_dir = None):
+    """Generator function for streaming restore output with progress"""
     process = execute_restic_command(cmd, env_vars, stream_output=True)
+    
+    processed_files = 0
+    last_progress = -1
     
     try:
         for line in iter(process.stdout.readline, ''):
             if line:
-                yield f"data: {json.dumps({'output': line.strip()})}\n\n"
+                processed_files += 1
+                
+                # Calculate progress percentage
+                if total_files > 0:
+                    progress = min(int((processed_files / total_files) * 100), 100)
+                    
+                    # Only send progress updates every 5% to reduce frontend load
+                    if progress != last_progress and progress % 5 == 0:
+                        yield f"data: {json.dumps({'progress': progress, 'processed': processed_files, 'total': total_files})}\n\n"
+                        last_progress = progress
+                else:
+                    # Fallback: send periodic updates without percentage
+                    if processed_files % 100 == 0:  # Every 100 files
+                        yield f"data: {json.dumps({'processed': processed_files, 'message': f'Processed {processed_files} files...'})}\n\n"
         
         process.wait()
-        yield f"data: {json.dumps({'completed': True, 'success': process.returncode == 0})}\n\n"
+        
+        # If restore was successful, add target path to config
+        if process.returncode == 0:
+            from utils import load_config, save_config
+            config = load_config()
+            if 'restored_paths' not in config:
+                config['restored_paths'] = []
+            
+            final_path = target_path + "/" + top_level_dir
+            # Add target path if not already present
+            if final_path not in config['restored_paths']:
+                config['restored_paths'].append(final_path)
+                save_config(config)
+            
+            # Include browse link in the response
+            browse_link = f"/browse{final_path}"
+            yield f"data: {json.dumps({'completed': True, 'success': True, 'browse_link': browse_link, 'total_processed': processed_files})}\n\n"
+        else:
+            yield f"data: {json.dumps({'completed': True, 'success': False})}\n\n"
         
     except Exception as e:
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
@@ -220,7 +276,17 @@ def restore_backup(location_id, backup_id):
         
         def event_stream():
             yield "data: {\"message\": \"Starting restore...\"}\n\n"
-            yield from generate_restore_stream(cmd, env_vars)
+            
+            # Count files in snapshot for progress tracking
+            yield "data: {\"message\": \"Counting files in snapshot...\"}\n\n"
+            total_files, top_level_dir = count_files_in_snapshot(backup_id, repo_path, password)
+            
+            if total_files > 0:
+                yield f"data: {{\"message\": \"Found {total_files} files to restore. Starting restore...\"}}\n\n"
+            else:
+                yield "data: {\"message\": \"Starting restore (file count unavailable)...\"}\n\n"
+            
+            yield from generate_restore_stream(cmd, env_vars, target, total_files, top_level_dir)
         
         return Response(event_stream(), mimetype='text/event-stream')
         

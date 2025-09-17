@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Browse Restored Content</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .file-icon { width: 20px; height: 20px; }
+        .folder-icon { color: #3B82F6; }
+        .file-icon-default { color: #6B7280; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-6 max-w-4xl">
+        <!-- Header -->
+        <div class="bg-white rounded-lg shadow-sm border p-4 mb-4">
+            <h1 class="text-xl font-semibold text-gray-800 mb-2">Browse Restored Content</h1>
+            <p class="text-sm text-gray-600 break-all">{{ path }}</p>
+        </div>
+
+        <!-- Breadcrumb Navigation -->
+        <div class="mb-4">
+            <nav class="flex items-center space-x-2 text-sm">
+                {% for crumb in breadcrumbs %}
+                    {% if not loop.last %}
+                        <a href="{{ url_for('browse_restored_content', restore_path=crumb.path) }}" 
+                           class="text-blue-600 hover:text-blue-800 hover:underline font-medium">
+                            {{ crumb.name }}
+                        </a>
+                        <span class="text-gray-400">/</span>
+                    {% else %}
+                        <span class="text-gray-700 font-medium">{{ crumb.name }}</span>
+                    {% endif %}
+                {% endfor %}
+            </nav>
+        </div>
+
+        <!-- Content Grid -->
+        <div class="bg-white rounded-lg shadow-sm border overflow-hidden">
+            {% if items %}
+                {% for item in items %}
+                <div class="border-b border-gray-100 last:border-b-0 hover:bg-gray-50 transition-colors">
+                    <div class="p-4 flex items-center justify-between">
+                        <div class="flex items-center space-x-3 flex-1 min-w-0">
+                            <!-- Icon -->
+                            <div class="flex-shrink-0">
+                                {% if item.is_directory %}
+                                    <svg class="file-icon folder-icon" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path>
+                                    </svg>
+                                {% else %}
+                                    <svg class="file-icon file-icon-default" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path>
+                                    </svg>
+                                {% endif %}
+                            </div>
+                            
+                            <!-- Name -->
+                            <div class="flex-1 min-w-0">
+                                {% if item.is_directory %}
+                                    <a href="{{ url_for('browse_restored_content', restore_path=item.clickable_path) }}" class="text-blue-600 hover:text-blue-800 font-medium text-left truncate block w-full">
+                                        {{ item.name }}
+                                    </a>
+                                {% else %}
+                                    <a href="/view{{ path }}/{{ item.name }}" target="_blank" class="text-gray-800 hover:text-blue-600 font-medium truncate block">{{ item.name }}</a>
+                                {% endif %}
+                            </div>
+                        </div>
+                        
+                        <!-- Size -->
+                        <div class="flex-shrink-0 text-sm text-gray-500 ml-4">
+                            {% if not item.is_directory and item.size is not none %}
+                                {{ format_size(item.size) }}
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="p-8 text-center text-gray-500">
+                    <svg class="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                    <p>This directory is empty</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        function navigate(itemName) {
+            const currentPath = '{{ path }}';
+            const newPath = currentPath.endsWith('/') ? currentPath + itemName : currentPath + '/' + itemName;
+            window.location.href = '/browse' + newPath;
+        }
+
+        function goUp() {
+            const currentPath = '{{ path }}';
+            const parentPath = currentPath.substring(0, currentPath.lastIndexOf('/')) || '/';
+            window.location.href = '/browse' + parentPath;
+        }
+    </script>
+</body>
+</html>

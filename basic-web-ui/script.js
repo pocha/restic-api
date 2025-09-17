@@ -258,6 +258,10 @@ function showDataInModal(title, dataSource, isSSE = false) {
 // Helper function to handle SSE data in modal
 async function handleSSEInModal(responseBody, modalContent) {
   modalContent.innerHTML = '<div class="text-blue-600">Starting...</div>'
+  
+  let progressContainer = null
+  let progressBar = null
+  let progressText = null
 
   try {
     const reader = responseBody.getReader()
@@ -274,24 +278,72 @@ async function handleSSEInModal(responseBody, modalContent) {
         if (line.startsWith("data: ")) {
           try {
             const data = JSON.parse(line.slice(6))
-            const logEntry = document.createElement("div")
-
-            if (data.output) {
-              logEntry.textContent = data.output
-              logEntry.className = "text-sm text-gray-700 mb-1"
+            
+            if (data.progress !== undefined) {
+              // Handle progress updates
+              if (!progressContainer) {
+                // Create progress bar on first progress update
+                progressContainer = document.createElement("div")
+                progressContainer.className = "mb-4"
+                progressContainer.innerHTML = `
+                  <div class="mb-2">
+                    <div class="bg-gray-200 rounded-full h-4 overflow-hidden">
+                      <div class="bg-blue-500 h-full transition-all duration-300 ease-out" style="width: 0%"></div>
+                    </div>
+                  </div>
+                  <div class="text-sm text-gray-600"></div>
+                `
+                modalContent.appendChild(progressContainer)
+                progressBar = progressContainer.querySelector('.bg-blue-500')
+                progressText = progressContainer.querySelector('.text-sm')
+              }
+              
+              // Update progress bar and text
+              progressBar.style.width = `${data.progress}%`
+              progressText.textContent = `Progress: ${data.progress}% (${data.processed}/${data.total} files)`
+              
+            } else if (data.processed && !data.progress) {
+              // Handle fallback progress without percentage
+              if (!progressContainer) {
+                progressContainer = document.createElement("div")
+                progressContainer.className = "mb-4"
+                progressContainer.innerHTML = `<div class="text-sm text-gray-600"></div>`
+                modalContent.appendChild(progressContainer)
+                progressText = progressContainer.querySelector('.text-sm')
+              }
+              progressText.textContent = `Processed ${data.processed} files...`
+              
             } else if (data.message) {
+              const logEntry = document.createElement("div")
               logEntry.textContent = data.message
               logEntry.className = "text-blue-600 mb-1"
+              modalContent.appendChild(logEntry)
+              
             } else if (data.completed) {
-              logEntry.textContent = data.success ? "Operation completed successfully!" : "Operation failed!"
+              const logEntry = document.createElement("div")
+              if (data.success && data.total_processed) {
+                logEntry.textContent = `Operation completed successfully! Restored ${data.total_processed} files.`
+              } else {
+                logEntry.textContent = data.success ? "Operation completed successfully!" : "Operation failed!"
+              }
               logEntry.className = data.success ? "text-green-600 font-medium" : "text-red-600 font-medium"
+              modalContent.appendChild(logEntry)
+              
             } else if (data.error) {
+              const logEntry = document.createElement("div")
               logEntry.textContent = `Error: ${data.error}`
               logEntry.className = "text-red-600 font-medium"
+              modalContent.appendChild(logEntry)
             }
 
-            if (logEntry.textContent) {
-              modalContent.appendChild(logEntry)
+            modalContent.scrollTop = modalContent.scrollHeight
+
+            // Add browse link if available (for completed restore operations)
+            if (data.completed && data.success && data.browse_link) {
+              const browseLink = document.createElement("div")
+              browseLink.className = "mt-2"
+              browseLink.innerHTML = `<a href="${data.browse_link}" target="_blank" class="inline-block bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium transition-colors">📁 Browse Restored Files</a>`
+              modalContent.appendChild(browseLink)
               modalContent.scrollTop = modalContent.scrollHeight
             }
           } catch (parseError) {
