@@ -59,11 +59,11 @@
                             <!-- Name -->
                             <div class="flex-1 min-w-0">
                                 {% if item.is_directory %}
-                                    <button onclick="navigate('{{ item.name }}')" class="text-blue-600 hover:text-blue-800 font-medium text-left truncate block w-full">
+                                    <a href="{{ item.clickable_path }}" class="text-blue-600 hover:text-blue-800 font-medium text-left truncate block w-full">
                                         {{ item.name }}
-                                    </button>
+                                    </a>
                                 {% else %}
-                                    <span class="text-gray-800 font-medium truncate block">{{ item.name }}</span>
+                                    <a href="/view{{ path }}/{{ item.name }}" target="_blank" class="text-gray-800 hover:text-blue-600 font-medium truncate block">{{ item.name }}</a>
                                 {% endif %}
                             </div>
                         </div>

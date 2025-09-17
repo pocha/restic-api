@@ -37,43 +37,62 @@ def browse_restored_content(restore_path):
         restore_path = os.path.normpath(restore_path)
         
         # Validate that the requested path is within one of our restored directories
+        # and restrict access to only the first directory inside restore_path
         is_valid_path = False
         base_restore_path = None
+        allowed_browse_path = None
         
         for restored_path in restored_paths:
             restored_path = os.path.normpath(restored_path)
-            # Check if the requested path is the restored path itself or a subdirectory
-            if restore_path == restored_path or restore_path.startswith(restored_path + os.sep):
-                is_valid_path = True
-                base_restore_path = restored_path
-                break
+            
+            # Find the first directory inside the restored path
+            if os.path.exists(restored_path) and os.path.isdir(restored_path):
+                try:
+                    items_in_restore = [item for item in os.listdir(restored_path) 
+                                      if os.path.isdir(os.path.join(restored_path, item))]
+                    if items_in_restore:
+                        # Use the first directory as the allowed browse path
+                        first_dir = sorted(items_in_restore)[0]
+                        allowed_browse_path = os.path.join(restored_path, first_dir)
+                        
+                        # Check if the requested path is within this allowed directory
+                        if (restore_path == allowed_browse_path or 
+                            restore_path.startswith(allowed_browse_path + os.sep)):
+                            is_valid_path = True
+                            base_restore_path = restored_path
+                            break
+                except (PermissionError, OSError):
+                    continue
         
         if not is_valid_path:
-            return jsonify({'error': 'Access denied. Path not found in restored directories.'}), 403
+            return jsonify({'error': 'Access denied. Path not found in allowed directories.'}), 403
         
         # Check if directory exists
         if not os.path.exists(restore_path) or not os.path.isdir(restore_path):
             return jsonify({'error': 'Directory not found or inaccessible.'}), 404
         
-        # Generate breadcrumb navigation
+        # Generate breadcrumb navigation with relative paths for URL generation
         breadcrumbs = []
         current_path = restore_path
         
-        # Build breadcrumbs from current path back to base restore path
-        while current_path and current_path != base_restore_path:
+        # Build breadcrumbs from current path back to allowed browse path
+        while current_path and current_path != allowed_browse_path:
             parent_path = os.path.dirname(current_path)
             if parent_path == current_path:  # Reached root
                 break
+            # Use relative path by removing leading slash for URL generation
+            relative_path = current_path.lstrip('/')
             breadcrumbs.insert(0, {
                 'name': os.path.basename(current_path),
-                'path': current_path
+                'path': relative_path
             })
             current_path = parent_path
         
-        # Add the base restore directory as the root breadcrumb
+        # Add the allowed browse directory as the root breadcrumb
+        allowed_relative_path = allowed_browse_path.lstrip('/')
         breadcrumbs.insert(0, {
-            'name': os.path.basename(base_restore_path) or 'Root',
-            'path': base_restore_path
+            'name': os.path.basename(allowed_browse_path),
+            'path': allowed_relative_path
         })
         
         # Get directory contents
@@ -91,11 +110,17 @@ def browse_restored_content(restore_path):
                     except:
                         size = 0
                 
+                # Create clickable path for directories (relative path without leading slash)
+                clickable_path = None
+                if is_dir:
+                    clickable_path = item_path.lstrip('/')
+                
                 items.append({
                     'name': item,
                     'is_directory': is_dir,
                     'size': size,
-                    'path': item_path
+                    'path': item_path,
+                    'clickable_path': clickable_path  # For directory navigation
                 })
             
             # Helper function for formatting file sizes
@@ -123,6 +148,49 @@ def browse_restored_content(restore_path):
         return jsonify({'error': str(e)}), 500
             
         
+
+@app.route('/view/<path:file_path>')
+def view_file_content(file_path):
+    """View file content with path validation"""
+    try:
+        # Load config to validate restored paths
+        config = load_config()
+        restored_paths = config.get('restored_paths', [])
+        
+        # Normalize the requested file path
+        file_path = '/' + file_path.strip('/')
+        
+        # Validate that the file path is within a restored directory
+        is_valid = False
+        for restored_path in restored_paths:
+            if file_path.startswith(restored_path):
+                is_valid = True
+                break
+        
+        if not is_valid:
+            return "Access denied: File not in restored directory", 403
+            
+        # Check if file exists and is actually a file
+        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            return "File not found", 404
+            
+        # Try to read and display file content
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Return as plain text with proper content type
+            from flask import Response
+            return Response(content, mimetype='text/plain')
+            
+        except UnicodeDecodeError:
+            # If file is binary, show info instead of content
+            file_size = os.path.getsize(file_path)
+            return f"Binary file: {os.path.basename(file_path)}\nSize: {format_size(file_size)}\nCannot display binary content."
+            
+    except Exception as e:
+        return f"Error reading file: {str(e)}", 500
+
 @app.route('/config', methods=['GET'])
 def get_config():
     """Get current configuration"""
