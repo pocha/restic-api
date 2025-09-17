@@ -1,5 +1,7 @@
 from flask import jsonify, send_from_directory
+from flask import render_template
 
+import os
 from schedule import *
 from restic_installer import *
 from backup import *
@@ -22,6 +24,68 @@ def serve_static(filename):
 
 
 
+@app.route('/browse/<path:restore_path>')
+def browse_restored_content(restore_path):
+    """Browse restored directory content with validation"""
+    try:
+        # Load config to validate restored paths
+        config = load_config()
+        restored_paths = config.get('restored_paths', [])
+        
+        # Validate that the requested path is in our restored paths
+        restore_path = '/' + restore_path if not restore_path.startswith('/') else restore_path
+        
+        if restore_path not in restored_paths:
+            return jsonify({'error': 'Access denied. Path not found in restored directories.'}), 403
+        
+        # Check if directory exists
+        if not os.path.exists(restore_path) or not os.path.isdir(restore_path):
+            return jsonify({'error': 'Directory not found or inaccessible.'}), 404
+        
+        # Get directory contents
+        try:
+            items = []
+            for item in sorted(os.listdir(restore_path)):
+                item_path = os.path.join(restore_path, item)
+                is_dir = os.path.isdir(item_path)
+                
+                # Get file size for files
+                size = None
+                if not is_dir:
+                    try:
+                        size = os.path.getsize(item_path)
+                    except:
+                        size = 0
+                
+                items.append({
+                    'name': item,
+                    'is_directory': is_dir,
+                    'size': size
+                })
+            
+            # Helper function for formatting file sizes
+            def format_size(size_bytes):
+                if size_bytes == 0:
+                    return "0 B"
+                size_names = ["B", "KB", "MB", "GB", "TB"]
+                import math
+                i = int(math.floor(math.log(size_bytes, 1024)))
+                p = math.pow(1024, i)
+                s = round(size_bytes / p, 2)
+                return f"{s} {size_names[i]}"
+            
+            return render_template('browse.html', 
+                                 path=restore_path, 
+                                 items=items,
+                                 format_size=format_size)
+            
+        except PermissionError:
+            return jsonify({'error': 'Permission denied accessing directory.'}), 403
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+            
+        
 @app.route('/config', methods=['GET'])
 def get_config():
     """Get current configuration"""

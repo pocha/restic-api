@@ -174,7 +174,7 @@ def list_backup_contents(location_id, backup_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     
-def generate_restore_stream(cmd, env_vars):
+def generate_restore_stream(cmd, env_vars, target_path):
     """Generator function for streaming restore output"""
     process = execute_restic_command(cmd, env_vars, stream_output=True)
     
@@ -184,7 +184,24 @@ def generate_restore_stream(cmd, env_vars):
                 yield f"data: {json.dumps({'output': line.strip()})}\n\n"
         
         process.wait()
-        yield f"data: {json.dumps({'completed': True, 'success': process.returncode == 0})}\n\n"
+        
+        # If restore was successful, add target path to config
+        if process.returncode == 0:
+            from utils import load_config, save_config
+            config = load_config()
+            if 'restored_paths' not in config:
+                config['restored_paths'] = []
+            
+            # Add target path if not already present
+            if target_path not in config['restored_paths']:
+                config['restored_paths'].append(target_path)
+                save_config(config)
+            
+            # Include browse link in the response
+            browse_link = f"/browse{target_path}"
+            yield f"data: {json.dumps({'completed': True, 'success': True, 'browse_link': browse_link})}\n\n"
+        else:
+            yield f"data: {json.dumps({'completed': True, 'success': False})}\n\n"
         
     except Exception as e:
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
@@ -220,7 +237,7 @@ def restore_backup(location_id, backup_id):
         
         def event_stream():
             yield "data: {\"message\": \"Starting restore...\"}\n\n"
-            yield from generate_restore_stream(cmd, env_vars)
+            yield from generate_restore_stream(cmd, env_vars, target)
         
         return Response(event_stream(), mimetype='text/event-stream')
         

@@ -294,6 +294,15 @@ async function handleSSEInModal(responseBody, modalContent) {
               modalContent.appendChild(logEntry)
               modalContent.scrollTop = modalContent.scrollHeight
             }
+
+            // Add browse link if available (for completed restore operations)
+            if (data.completed && data.success && data.browse_link) {
+              const browseLink = document.createElement("div")
+              browseLink.className = "mt-2"
+              browseLink.innerHTML = `<a href="${data.browse_link}" target="_blank" class="inline-block bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium transition-colors">📁 Browse Restored Files</a>`
+              modalContent.appendChild(browseLink)
+              modalContent.scrollTop = modalContent.scrollHeight
+            }
           } catch (parseError) {
             console.warn("Failed to parse SSE data:", line)
           }
