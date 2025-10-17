@@ -18,8 +18,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=$(whoami)
-Group=$(whoami)
+User=$SUDO_USER
+Group=$SUDO_USER
 ExecStart=/usr/local/bin/restic-api  > ~/.restic-api/server.logs 2>&1
 ExecStop=kill -9 \`ps -ef | grep restic-api | head -n 1 | awk '{print $2}'\`
 
