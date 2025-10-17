@@ -43,7 +43,7 @@ if [ "$OS" = "Darwin" ]; then
 elif [ "$OS" = "Linux" ]; then
   
   restic version
-  if [ $? == 1 ]
+  if [ $? != 0 ]
   then
     echo "Install restic from https://github.com/restic/restic/releases"
     exit 1
