@@ -210,7 +210,7 @@ function hideLoadingOnButton(button) {
 }
 
 // Modal function to display data (SSE or response)
-function showDataInModal(title, dataSource, isSSE = false) {
+function showDataInModal(title, dataSource, isSSE = false, isRestore = false) {
   const modal = document.getElementById("dataModal")
   const modalTitle = document.getElementById("modalTitle")
   const modalContent = document.getElementById("modalContent")
@@ -228,7 +228,7 @@ function showDataInModal(title, dataSource, isSSE = false) {
 
   // Handle SSE data
   if (isSSE && dataSource && typeof dataSource.getReader === "function") {
-    handleSSEInModal(dataSource, modalContent)
+    !isRestore ? handleSSEInModal(dataSource, modalContent) :  handleRestore(dataSource, modalContent)
   }
   // Handle regular response data
   else if (dataSource) {
@@ -255,8 +255,59 @@ function showDataInModal(title, dataSource, isSSE = false) {
   }
 }
 
+
 // Helper function to handle SSE data in modal
 async function handleSSEInModal(responseBody, modalContent) {
+  modalContent.innerHTML = '<div class="text-blue-600">Starting...</div>'
+
+  try {
+    const reader = responseBody.getReader()
+    const decoder = new TextDecoder()
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      const chunk = decoder.decode(value, { stream: true })
+      const lines = chunk.split("\n")
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          try {
+            const data = JSON.parse(line.slice(6))
+            const logEntry = document.createElement("div")
+
+            if (data.output) {
+              logEntry.textContent = data.output
+              logEntry.className = "text-sm text-gray-700 mb-1"
+            } else if (data.message) {
+              logEntry.textContent = data.message
+              logEntry.className = "text-blue-600 mb-1"
+            } else if (data.completed) {
+              logEntry.textContent = data.success ? "Operation completed successfully!" : "Operation failed!"
+              logEntry.className = data.success ? "text-green-600 font-medium" : "text-red-600 font-medium"
+            } else if (data.error) {
+              logEntry.textContent = `Error: ${data.error}`
+              logEntry.className = "text-red-600 font-medium"
+            }
+
+            if (logEntry.textContent) {
+              modalContent.appendChild(logEntry)
+              modalContent.scrollTop = modalContent.scrollHeight
+            }
+          } catch (parseError) {
+            console.warn("Failed to parse SSE data:", line)
+          }
+        }
+      }
+    }
+  } catch (error) {
+    modalContent.innerHTML = `<div class="text-red-600">Error: ${error.message}</div>`
+  }
+}
+
+
+async function handleRestore(responseBody, modalContent) {
   modalContent.innerHTML = '<div class="text-blue-600">Starting...</div>'
   
   let progressContainer = null
@@ -429,7 +480,7 @@ window.restoreBackupAction = async function (locationId, backupId, index, button
     }
 
     // Use the modal to display restore progress
-    showDataInModal(`Restore Progress - Backup ${backupId}`, response.body, true)
+    showDataInModal(`Restore Progress - Backup ${backupId}`, response.body, true, true)
   } catch (error) {
     console.error("Error starting restore:", error)
     showDataInModal(`Restore Error - Backup ${backupId}`, `Error: ${error.message}`, false)
