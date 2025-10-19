@@ -70,7 +70,7 @@ def api_call(method, endpoint, data=None, stream=False):
         if stream:
             return response
         
-        print(f"📡 {method} {endpoint}: {response.status_code}")
+        print(f"📡 {method} {endpoint}: {response.text}")
         if response.headers.get('content-type', '').startswith('application/json'):
             result = response.json()
             print(f"   Response: {json.dumps(result, indent=2)}")
@@ -220,7 +220,7 @@ def test_restic_installation():
             response = requests.post(f'{BASE_URL}/config/update_restic', files=files, data=data)
             
             if response.status_code != 200:
-                raise TypeError(f"❌ Installation API call failed: {response.status_code}")
+                raise TypeError(f"❌ Installation API call failed: {response.text}")
                 print(f"   Response: {response.text}")
                 return False
             
@@ -281,7 +281,7 @@ def create_backup_location(repo_dir):
     }
     response = requests.post(f'{BASE_URL}/locations', json=init_data)
     if response.status_code != 200:
-        raise TypeError(f"❌ Failed to initialize repository: {response.status_code}, {response.text}")
+        raise TypeError(f"❌ Failed to initialize repository: {response.text}, {response.text}")
         print(f"   Response: {response.text}")
         return False
     
@@ -329,7 +329,7 @@ def take_backup(location_id, backup_data):
     headers = {'X-Restic-Password': 'test_password_123'}
     response = requests.post(f'{BASE_URL}/locations/{location_id}/backups', json=backup_data, headers=headers, stream=True)
     if response.status_code != 200:
-        raise TypeError(f"❌ Failed to start backup: {response.status_code}")
+        raise TypeError(f"❌ Failed to start backup: {response.text}")
         return False
     
     exit_code = stream_output(response)
@@ -342,7 +342,7 @@ def config_updated_with_recent_backup(location_id, backup_dir):
     print("\n🔍 Verifying config was updated with backup path...")
     response = requests.get(f'{BASE_URL}/config')
     if response.status_code != 200:
-        raise TypeError(f"❌ Failed to get config: {response.status_code}")
+        raise TypeError(f"❌ Failed to get config: {response.text}")
     
     config = response.json()
     if location_id not in config.get('locations', {}):
@@ -363,7 +363,7 @@ def check_snapshots_and_get_latest(location_id):
     headers = {'X-Restic-Password': 'test_password_123'}
     response = requests.get(f'{BASE_URL}/locations/{location_id}/backups', headers=headers)
     if response.status_code != 200:
-        raise TypeError(f"❌ Failed to list snapshots: {response.status_code}")
+        raise TypeError(f"❌ Failed to list snapshots: {response.text}")
     
     snapshots = response.json()
     if not snapshots or not isinstance(snapshots, list):
@@ -389,7 +389,7 @@ def get_snapshot_content(location_id, snapshot_id):
     headers = {'X-Restic-Password': 'test_password_123'}
     response = requests.get(f'{BASE_URL}/locations/{location_id}/backups/{snapshot_id}?recursive=true', headers=headers)
     if response.status_code != 200:
-        print(f"❌ Failed to list backup contents: {response.status_code}")
+        print(f"❌ Failed to list backup contents: {response.text}")
         return False
     
     backup_contents = response.json()
@@ -401,17 +401,18 @@ def get_snapshot_content(location_id, snapshot_id):
     if len(backup_contents) > 10:
         print(f"   ... and {len(backup_contents) - 10} more items")
 
-def restore_backup(location_id, snapshot_id, restore_dir, backup_dir=None, backup_dir_renamed=None):
+def restore_backup(location_id, snapshot_id, restore_dir, backup_dir, backup_dir_renamed=None):
     # Step 10: Restore backup
     print("\n🔄 Restoring backup...")
     restore_data = {
-        'target': restore_dir
+        'target': restore_dir,
+        'top_level_dir': backup_dir
     }
     
     headers = {'X-Restic-Password': 'test_password_123'}
     response = requests.post(f'{BASE_URL}/locations/{location_id}/backups/{snapshot_id}/restore', json=restore_data, headers=headers, stream=True)
     if response.status_code != 200:
-        raise TypeError(f"❌ Failed to start restore: {response.status_code}")
+        raise TypeError(f"❌ Failed to start restore: {response.text}")
         return False
     
     exit_code = stream_output(response)
@@ -464,7 +465,7 @@ def schedule_backup(location_id, type, path):
     response = requests.post(f'{BASE_URL}/locations/{location_id}/schedule', json=schedule_data, headers=headers)
 
     if response.status_code != 200:
-        raise TypeError(f"❌ Schedule creation failed: {response.status_code}, {response.text}")
+        raise TypeError(f"❌ Schedule creation failed: {response.text}")
         print(f"Response: {response.text}")
         return False
 
@@ -516,7 +517,7 @@ def test_backup(type="directory"):
             backup_dir_renamed = move_dir(backup_dir)
             return restore_backup(location_id, snapshot_id, restore_dir, backup_dir, backup_dir_renamed)
         else:
-            return restore_backup(location_id, snapshot_id, restore_dir)
+            return restore_backup(location_id, snapshot_id, restore_dir, "/" + filename)
 
 
     except Exception as e:
@@ -563,7 +564,7 @@ def retrieve_cron_entry(schedule_id):
 def get_first_schedule_id(location_id):
     response = requests.get(f'{BASE_URL}/locations/{location_id}/schedule')
     if response.status_code != 200:
-        raise TypeError(f"❌ Schedule GET call failed: {response.status_code}")
+        raise TypeError(f"❌ Schedule GET call failed: {response.text}")
     
     json = response.json()
     #print(json)
@@ -617,7 +618,7 @@ def test_schedule_functionality():
         print("\n💾 Testing backup execution with streaming...")
         response = requests.post(f'{BASE_URL}/locations/{location_id}/schedule/{schedule_id}/execute-backup', stream=True)
         if response.status_code != 200:
-            raise TypeError(f"❌ Manual backup with key failed: {response.status_code}, {response.text}")
+            raise TypeError(f"❌ Manual backup with key failed: {response.text}, {response.text}")
         stream_output(response)
         print(f"✅ Streaming backup completed successfully")
 
@@ -628,7 +629,7 @@ def test_schedule_functionality():
         print(f"\n🔍 Verifying cron job was removed for schedule_id: {schedule_id}")
         response = requests.delete(f'{BASE_URL}/locations/{location_id}/schedule/{schedule_id}')
         if response.status_code != 200:
-            raise TypeError(f"❌ deletion of scheduled backup failed: {response.status_code}")
+            raise TypeError(f"❌ deletion of scheduled backup failed: {response.text}")
         cron_entry = retrieve_cron_entry(schedule_id)
         if cron_entry:
             raise TypeError(f"Cron entry still exists even after the schedule is deleted")

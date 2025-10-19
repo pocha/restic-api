@@ -185,18 +185,12 @@ def count_files_in_snapshot(snapshot_id, repo_path, password):
             # Count lines in output (each line is a file/directory)
             stdout = process.stdout.strip().split('\n')
             file_count = len([line for line in stdout if line.strip()])
-            
-            top_level_dir = None
-            for line in stdout:
-                if line.strip():
-                    top_level_dir = line.split("/")[1]
-                    break
-            return [file_count, top_level_dir]
+            return file_count
         return 0
     except Exception:
         return 0
 
-def generate_restore_stream(cmd, env_vars, target_path, total_files=0, top_level_dir = None):
+def generate_restore_stream(cmd, env_vars, target_path, total_files, top_level_dir):
     """Generator function for streaming restore output with progress"""
     process = execute_restic_command(cmd, env_vars, stream_output=True)
     
@@ -230,14 +224,20 @@ def generate_restore_stream(cmd, env_vars, target_path, total_files=0, top_level
             if 'restored_paths' not in config:
                 config['restored_paths'] = []
             
-            final_path = target_path + "/" + top_level_dir
+            final_path = target_path + top_level_dir
             # Add target path if not already present
             if final_path not in config['restored_paths']:
                 config['restored_paths'].append(final_path)
                 save_config(config)
             
-            # Include browse link in the response
-            browse_link = f"/browse{final_path}"
+            is_file = os.path.isfile(final_path)
+            
+            browse_link = None
+            if is_file:
+                browse_link = f"/view{final_path}"
+            else:
+                browse_link = f"/browse{final_path}"
+
             yield f"data: {json.dumps({'completed': True, 'success': True, 'browse_link': browse_link, 'total_processed': processed_files})}\n\n"
         else:
             yield f"data: {json.dumps({'completed': True, 'success': False})}\n\n"
@@ -261,8 +261,8 @@ def restore_backup(location_id, backup_id):
             return jsonify({'error': 'Location not found'}), 404
         
         data = request.get_json()
-        if not data or 'target' not in data:
-            return jsonify({'error': 'target parameter is required'}), 400
+        if not data or 'target' not in data or 'top_level_dir' not in data:
+            return jsonify({'error': 'target & top_level_dir params are required'}), 400
         
         repo_path = config['locations'][location_id]['repo_path']
         target = data['target']
@@ -279,14 +279,14 @@ def restore_backup(location_id, backup_id):
             
             # Count files in snapshot for progress tracking
             yield "data: {\"message\": \"Counting files in snapshot...\"}\n\n"
-            total_files, top_level_dir = count_files_in_snapshot(backup_id, repo_path, password)
+            total_files = count_files_in_snapshot(backup_id, repo_path, password)
             
             if total_files > 0:
                 yield f"data: {{\"message\": \"Found {total_files} files to restore. Starting restore...\"}}\n\n"
             else:
                 yield "data: {\"message\": \"Starting restore (file count unavailable)...\"}\n\n"
             
-            yield from generate_restore_stream(cmd, env_vars, target, total_files, top_level_dir)
+            yield from generate_restore_stream(cmd, env_vars, target, total_files, data.get('top_level_dir'))
         
         return Response(event_stream(), mimetype='text/event-stream')
         

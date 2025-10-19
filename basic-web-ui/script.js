@@ -471,7 +471,7 @@ window.restoreBackupAction = async function (locationId, backupId, index, button
         "Content-Type": "application/json",
         "X-Restic-Password": password,
       },
-      body: JSON.stringify({ target: target }),
+      body: JSON.stringify({ target: target, top_level_dir: window.topLevelDirectory }),
     })
 
     if (!response.ok) {
@@ -627,6 +627,9 @@ document.addEventListener("DOMContentLoaded", async function () {
   document.getElementById("listBackupsBtn").addEventListener("click", async function () {
     const locationId = document.getElementById("restoreLocation").value
     const directory = document.getElementById("restoreDirectory").value
+
+    // Store this for later use in restore
+    window.topLevelDirectory = directory
 
     if (!locationId || !directory) {
       alert("Please select both location and directory")
