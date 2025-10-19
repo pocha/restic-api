@@ -1,6 +1,6 @@
 import os
 
-from flask import jsonify, render_template
+from flask import jsonify, render_template, request
 from utils import load_config
 
 from app_factory import app
@@ -158,3 +158,44 @@ def format_size(size_bytes):
     p = math.pow(1024, i)
     s = round(size_bytes / p, 2)
     return f"{s} {size_names[i]}"
+
+@app.route('/browse-server-directory', methods=['GET'])
+def browse_server_directory():
+    """Browse server directories for selection (no validation against restored_paths)"""
+    try:
+        # Get the path parameter, default to user's home or root
+        path = request.args.get('path', os.path.expanduser('~'))
+        
+        # Normalize path
+        path = os.path.normpath(os.path.abspath(path))
+        
+        # Check if directory exists and is accessible
+        if not os.path.exists(path) or not os.path.isdir(path):
+            return jsonify({'error': 'Directory not found or inaccessible'}), 404
+        
+        # Get directory contents (only directories)
+        items = []
+        try:
+            for item in sorted(os.listdir(path)):
+                item_path = os.path.join(path, item)
+                
+                # Only include directories
+                if os.path.isdir(item_path):
+                    items.append({
+                        'name': item,
+                        'path': item_path
+                    })
+        except PermissionError:
+            return jsonify({'error': 'Permission denied'}), 403
+        
+        # Get parent directory
+        parent = os.path.dirname(path) if path != '/' else None
+        
+        return jsonify({
+            'current_path': path,
+            'parent': parent,
+            'directories': items
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

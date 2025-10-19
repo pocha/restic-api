@@ -150,3 +150,19 @@ export async function getSnapshotData(locationId, backupId, password, isLogs=fal
     return null
   }
 }
+
+export async function getDirectoryContent(path) {
+  try {
+    let url = `${API_BASE}/browse-server-directory?path=${encodeURIComponent(path)}`
+    const response = await fetch(url)
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || "Failed to fetch directory content")
+    }
+
+    return await response.json()
+  } catch (error) {
+    alert(`Error loading files: ${error.message}`)
+    return null
+  }
+}

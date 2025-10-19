@@ -3,7 +3,7 @@
 To create `restic-api-linux`, install `pyinstaller` as `pip install pyinstaller` & then run following commands
 
 ```
-pyinstaller --onefile --add-data 'basic-web-ui:basic-web-ui' --add-data 'restic_installer_scripts:restic_installer_scripts' main.py
+pyinstaller -n restic-api-linux --onefile --add-data 'basic-web-ui:basic-web-ui' --add-data 'restic_installer_scripts:restic_installer_scripts' main.py
 ``` 
 
 It will create `main` exectuable in `dist/` folder. Rename it to restic-api-linux. 
